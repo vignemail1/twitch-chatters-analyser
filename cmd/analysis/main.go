@@ -152,26 +152,26 @@ WHERE c.session_id = ? AND c.broadcaster_id = ?
 		return nil, err
 	}
 
-	// Top 10 des jours de création
+	// Top 10 des jours de création - FIX: utiliser COUNT(DISTINCT) pour éviter les doublons
 	var rows *sql.Rows
 	if broadcasterID == "" {
 		rows, err = a.db.QueryContext(ctx, `
-SELECT DATE(tu.created_at) AS d, COUNT(*) AS cnt
+SELECT DATE(tu.created_at) AS d, COUNT(DISTINCT cc.twitch_user_id) AS cnt
 FROM capture_chatters cc
 JOIN captures c ON cc.capture_id = c.id
 JOIN twitch_users tu ON tu.twitch_user_id = cc.twitch_user_id
-WHERE c.session_id = ?
+WHERE c.session_id = ? AND tu.created_at IS NOT NULL
 GROUP BY d
 ORDER BY cnt DESC
 LIMIT 10
 `, sessionID)
 	} else {
 		rows, err = a.db.QueryContext(ctx, `
-SELECT DATE(tu.created_at) AS d, COUNT(*) AS cnt
+SELECT DATE(tu.created_at) AS d, COUNT(DISTINCT cc.twitch_user_id) AS cnt
 FROM capture_chatters cc
 JOIN captures c ON cc.capture_id = c.id
 JOIN twitch_users tu ON tu.twitch_user_id = cc.twitch_user_id
-WHERE c.session_id = ? AND c.broadcaster_id = ?
+WHERE c.session_id = ? AND c.broadcaster_id = ? AND tu.created_at IS NOT NULL
 GROUP BY d
 ORDER BY cnt DESC
 LIMIT 10
@@ -184,16 +184,13 @@ LIMIT 10
 
 	topDays := make([]TopDay, 0, 10)
 	for rows.Next() {
-		var d sql.NullTime
+		var d time.Time
 		var cnt int64
 		if err := rows.Scan(&d, &cnt); err != nil {
 			return nil, err
 		}
-		if !d.Valid {
-			continue
-		}
 		topDays = append(topDays, TopDay{
-			Date:  d.Time.Format("2006-01-02"),
+			Date:  d.Format("2006-01-02"),
 			Count: cnt,
 		})
 	}
