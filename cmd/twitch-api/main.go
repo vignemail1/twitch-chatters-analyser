@@ -21,67 +21,18 @@ type App struct {
 	addr               string
 	twitchClientID     string
 	twitchClientSecret string
-	limiter            *rate.Limiter
-	cache              *Cache
+
+	// Rate limiter global pour respecter les limites Twitch (800 req/min)
+	limiter *rate.Limiter
+
+	// Cache simple pour les réponses (optionnel)
+	cacheMu sync.RWMutex
+	cache   map[string]cacheEntry
 }
 
-type Cache struct {
-	mu    sync.RWMutex
-	items map[string]*CacheItem
-}
-
-type CacheItem struct {
-	Value      []byte
-	Expiration time.Time
-}
-
-func NewCache() *Cache {
-	return &Cache{
-		items: make(map[string]*CacheItem),
-	}
-}
-
-func (c *Cache) Get(key string) ([]byte, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
-	item, found := c.items[key]
-	if !found {
-		return nil, false
-	}
-
-	if time.Now().After(item.Expiration) {
-		return nil, false
-	}
-
-	return item.Value, true
-}
-
-func (c *Cache) Set(key string, value []byte, duration time.Duration) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.items[key] = &CacheItem{
-		Value:      value,
-		Expiration: time.Now().Add(duration),
-	}
-}
-
-// Nettoyage périodique du cache
-func (c *Cache) StartCleanup(interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	go func() {
-		for range ticker.C {
-			c.mu.Lock()
-			now := time.Now()
-			for key, item := range c.items {
-				if now.After(item.Expiration) {
-					delete(c.items, key)
-				}
-			}
-			c.mu.Unlock()
-		}
-	}()
+type cacheEntry struct {
+	data      []byte
+	expiresAt time.Time
 }
 
 func main() {
@@ -90,29 +41,30 @@ func main() {
 	twitchClientSecret := getenv("TWITCH_CLIENT_SECRET", "")
 
 	if twitchClientID == "" || twitchClientSecret == "" {
-		log.Fatal("TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET must be set")
+		log.Fatal("TWITCH_CLIENT_ID and TWITCH_CLIENT_SECRET are required")
 	}
 
-	// Rate limiting: 800 req/min = ~13 req/s avec burst de 20
-	rateLimit := getenvInt("RATE_LIMIT_REQUESTS_PER_MINUTE", 600)
-	limiter := rate.NewLimiter(rate.Limit(float64(rateLimit)/60.0), 20)
-
-	cache := NewCache()
-	cache.StartCleanup(5 * time.Minute)
+	// Twitch limite à 800 req/min pour les app tokens
+	// On prend une marge : 600 req/min = 10 req/sec
+	ratePerSec, _ := strconv.Atoi(getenv("RATE_LIMIT_REQUESTS_PER_SECOND", "10"))
+	burst := ratePerSec * 2 // Burst de 2 secondes
 
 	app := &App{
 		addr:               ":" + port,
 		twitchClientID:     twitchClientID,
 		twitchClientSecret: twitchClientSecret,
-		limiter:            limiter,
-		cache:              cache,
+		limiter:            rate.NewLimiter(rate.Limit(ratePerSec), burst),
+		cache:              make(map[string]cacheEntry),
 	}
 
+	// Nettoyage du cache toutes les 5 minutes
+	go app.cleanCachePeriodically(5 * time.Minute)
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", app.handleHealth)
 	mux.HandleFunc("/chatters", app.handleChatters)
 	mux.HandleFunc("/users", app.handleUsers)
 	mux.HandleFunc("/moderated-channels", app.handleModeratedChannels)
-	mux.HandleFunc("/healthz", app.handleHealth)
 
 	handler := loggingMiddleware(mux)
 
@@ -122,7 +74,7 @@ func main() {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	log.Printf("twitch-api listening on %s (rate limit: %d req/min)", app.addr, rateLimit)
+	log.Printf("twitch-api listening on %s (rate: %d req/s, burst: %d)", app.addr, ratePerSec, burst)
 	if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}
@@ -133,7 +85,7 @@ func (a *App) handleHealth(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
-// GET /chatters?broadcaster_id={id}&moderator_id={id}&access_token={token}
+// handleChatters proxy vers GET https://api.twitch.tv/helix/chat/chatters
 func (a *App) handleChatters(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -142,135 +94,114 @@ func (a *App) handleChatters(w http.ResponseWriter, r *http.Request) {
 
 	broadcasterID := r.URL.Query().Get("broadcaster_id")
 	moderatorID := r.URL.Query().Get("moderator_id")
-	accessToken := r.URL.Query().Get("access_token")
+	accessToken := r.Header.Get("Authorization") // Format: "Bearer {token}"
 
-	if broadcasterID == "" || moderatorID == "" || accessToken == "" {
-		http.Error(w, "missing required parameters", http.StatusBadRequest)
+	if broadcasterID == "" || moderatorID == "" {
+		http.Error(w, "missing broadcaster_id or moderator_id", http.StatusBadRequest)
 		return
 	}
 
-	// Pas de cache pour les chatters (données temps réel)
+	if accessToken == "" {
+		http.Error(w, "missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+
+	// Attendre le rate limiter
 	if err := a.limiter.Wait(r.Context()); err != nil {
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		http.Error(w, "rate limit context error", http.StatusTooManyRequests)
 		return
 	}
 
+	// Construire l'URL Twitch
 	params := url.Values{}
 	params.Set("broadcaster_id", broadcasterID)
 	params.Set("moderator_id", moderatorID)
-	params.Set("first", "1000")
+	if first := r.URL.Query().Get("first"); first != "" {
+		params.Set("first", first)
+	}
+	if after := r.URL.Query().Get("after"); after != "" {
+		params.Set("after", after)
+	}
 
 	twitchURL := "https://api.twitch.tv/helix/chat/chatters?" + params.Encode()
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, twitchURL, nil)
+	// Proxy la requête
+	body, statusCode, err := a.proxyTwitchRequest(r.Context(), twitchURL, accessToken)
 	if err != nil {
-		log.Printf("create request error: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	req.Header.Set("Client-ID", a.twitchClientID)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Printf("twitch api error: %v", err)
-		http.Error(w, "twitch api error", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("read response error: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		log.Printf("proxy chatters error: %v", err)
+		http.Error(w, "failed to fetch chatters from Twitch", http.StatusBadGateway)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(statusCode)
 	_, _ = w.Write(body)
 }
 
-// GET /users?id={id1}&id={id2}&access_token={token}
+// handleUsers proxy vers GET https://api.twitch.tv/helix/users
 func (a *App) handleUsers(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	accessToken := r.URL.Query().Get("access_token")
+	accessToken := r.Header.Get("Authorization")
 	if accessToken == "" {
-		http.Error(w, "missing access_token", http.StatusBadRequest)
+		http.Error(w, "missing Authorization header", http.StatusUnauthorized)
 		return
 	}
 
-	// Récupérer tous les IDs
-	ids := r.URL.Query()["id"]
-	if len(ids) == 0 {
-		http.Error(w, "missing id parameter", http.StatusBadRequest)
+	// Construire la requête avec tous les paramètres id= ou login=
+	params := url.Values{}
+	for key, values := range r.URL.Query() {
+		if key == "id" || key == "login" {
+			for _, v := range values {
+				params.Add(key, v)
+			}
+		}
+	}
+
+	if len(params) == 0 {
+		http.Error(w, "missing id or login parameters", http.StatusBadRequest)
 		return
 	}
 
-	// Cache key basé sur les IDs triés
-	cacheKey := "users:" + strings.Join(ids, ",")
-	if cached, found := a.cache.Get(cacheKey); found {
+	// Vérifier le cache
+	cacheKey := "users:" + params.Encode()
+	if cached := a.getCache(cacheKey); cached != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
 		_, _ = w.Write(cached)
 		return
 	}
 
+	// Attendre le rate limiter
 	if err := a.limiter.Wait(r.Context()); err != nil {
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		http.Error(w, "rate limit context error", http.StatusTooManyRequests)
 		return
-	}
-
-	// Construire l'URL Twitch
-	params := url.Values{}
-	for _, id := range ids {
-		params.Add("id", id)
 	}
 
 	twitchURL := "https://api.twitch.tv/helix/users?" + params.Encode()
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, twitchURL, nil)
+	body, statusCode, err := a.proxyTwitchRequest(r.Context(), twitchURL, accessToken)
 	if err != nil {
-		log.Printf("create request error: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		log.Printf("proxy users error: %v", err)
+		http.Error(w, "failed to fetch users from Twitch", http.StatusBadGateway)
 		return
 	}
 
-	req.Header.Set("Client-ID", a.twitchClientID)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		log.Printf("twitch api error: %v", err)
-		http.Error(w, "twitch api error", http.StatusBadGateway)
-		return
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Printf("read response error: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Cache pendant 5 minutes (les infos users changent rarement)
-	if resp.StatusCode == http.StatusOK {
-		a.cache.Set(cacheKey, body, 5*time.Minute)
+	if statusCode == http.StatusOK {
+		// Cache les infos utilisateurs pour 5 minutes
+		a.setCache(cacheKey, body, 5*time.Minute)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-Cache", "MISS")
-	w.WriteHeader(resp.StatusCode)
+	w.WriteHeader(statusCode)
 	_, _ = w.Write(body)
 }
 
-// GET /moderated-channels?user_id={id}&access_token={token}
+// handleModeratedChannels proxy vers GET https://api.twitch.tv/helix/moderation/channels
 func (a *App) handleModeratedChannels(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -278,66 +209,118 @@ func (a *App) handleModeratedChannels(w http.ResponseWriter, r *http.Request) {
 	}
 
 	userID := r.URL.Query().Get("user_id")
-	accessToken := r.URL.Query().Get("access_token")
+	accessToken := r.Header.Get("Authorization")
 
-	if userID == "" || accessToken == "" {
-		http.Error(w, "missing required parameters", http.StatusBadRequest)
+	if userID == "" {
+		http.Error(w, "missing user_id", http.StatusBadRequest)
 		return
 	}
 
-	// Cache key
-	cacheKey := "moderated_channels:" + userID
-	if cached, found := a.cache.Get(cacheKey); found {
+	if accessToken == "" {
+		http.Error(w, "missing Authorization header", http.StatusUnauthorized)
+		return
+	}
+
+	// Vérifier le cache (1 minute pour les channels modérées)
+	cacheKey := "moderated:" + userID
+	if cached := a.getCache(cacheKey); cached != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("X-Cache", "HIT")
 		_, _ = w.Write(cached)
 		return
 	}
 
+	// Attendre le rate limiter
 	if err := a.limiter.Wait(r.Context()); err != nil {
-		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		http.Error(w, "rate limit context error", http.StatusTooManyRequests)
 		return
 	}
 
 	params := url.Values{}
 	params.Set("user_id", userID)
-
 	twitchURL := "https://api.twitch.tv/helix/moderation/channels?" + params.Encode()
 
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, twitchURL, nil)
+	body, statusCode, err := a.proxyTwitchRequest(r.Context(), twitchURL, accessToken)
 	if err != nil {
-		log.Printf("create request error: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		log.Printf("proxy moderated-channels error: %v", err)
+		http.Error(w, "failed to fetch moderated channels from Twitch", http.StatusBadGateway)
 		return
 	}
 
+	if statusCode == http.StatusOK {
+		// Cache pour 1 minute
+		a.setCache(cacheKey, body, 1*time.Minute)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Cache", "MISS")
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(body)
+}
+
+func (a *App) proxyTwitchRequest(ctx context.Context, twitchURL, accessToken string) ([]byte, int, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, twitchURL, nil)
+	if err != nil {
+		return nil, 0, err
+	}
+
 	req.Header.Set("Client-ID", a.twitchClientID)
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Authorization", accessToken)
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Printf("twitch api error: %v", err)
-		http.Error(w, "twitch api error", http.StatusBadGateway)
-		return
+		return nil, 0, err
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("read response error: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
+		return nil, resp.StatusCode, err
 	}
 
-	// Cache pendant 2 minutes
-	if resp.StatusCode == http.StatusOK {
-		a.cache.Set(cacheKey, body, 2*time.Minute)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Printf("twitch API error: %s - %s", resp.Status, string(body))
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Cache", "MISS")
-	w.WriteHeader(resp.StatusCode)
-	_, _ = w.Write(body)
+	return body, resp.StatusCode, nil
+}
+
+// Cache management
+func (a *App) getCache(key string) []byte {
+	a.cacheMu.RLock()
+	defer a.cacheMu.RUnlock()
+
+	entry, ok := a.cache[key]
+	if !ok || time.Now().After(entry.expiresAt) {
+		return nil
+	}
+	return entry.data
+}
+
+func (a *App) setCache(key string, data []byte, ttl time.Duration) {
+	a.cacheMu.Lock()
+	defer a.cacheMu.Unlock()
+
+	a.cache[key] = cacheEntry{
+		data:      data,
+		expiresAt: time.Now().Add(ttl),
+	}
+}
+
+func (a *App) cleanCachePeriodically(interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		a.cacheMu.Lock()
+		now := time.Now()
+		for key, entry := range a.cache {
+			if now.After(entry.expiresAt) {
+				delete(a.cache, key)
+			}
+		}
+		a.cacheMu.Unlock()
+	}
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
@@ -351,15 +334,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 func getenv(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
-	}
-	return def
-}
-
-func getenvInt(key string, def int) int {
-	if v := os.Getenv(key); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			return i
-		}
 	}
 	return def
 }
