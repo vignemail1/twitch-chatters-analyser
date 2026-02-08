@@ -36,9 +36,6 @@
     {{ if .IsSaved }}
     <p style="color: #22c55e; font-weight: 600;">✔️ Cette session est sauvegardée</p>
     {{ end }}
-    {{ if .BroadcasterID }}
-    <p><strong>Filtré pour :</strong> Broadcaster ID {{ .BroadcasterID }}</p>
-    {{ end }}
     
     <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;">
         {{ if .IsSaved }}
@@ -59,40 +56,62 @@
     </div>
 </div>
 
-<!-- Filtre par chaîne -->
-<div style="background-color: #18181b; padding: 1rem; border-radius: 8px; margin-bottom: 2rem;">
-    <h3 style="margin-top: 0; color: #efeff1;">🔍 Filtrer par chaîne</h3>
-    <form method="GET" style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
-        <input 
-            type="text" 
-            name="broadcaster_id" 
-            placeholder="Broadcaster ID (optionnel)" 
-            value="{{ .BroadcasterID }}"
-            style="flex: 1; min-width: 200px; padding: 0.5rem; background-color: #0e0e10; border: 1px solid #2d2d31; border-radius: 4px; color: #efeff1;"
-        />
-        <button type="submit" style="background-color: #9147ff; color: #fff; padding: 0.5rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer;">
-            Filtrer
-        </button>
-        {{ if .BroadcasterID }}
-            {{ if .IsSaved }}
-                <a href="/analysis/saved/{{ .SessionUUID }}" style="display: inline-block; background-color: #dc2626; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
-                    ❌ Retirer le filtre
-                </a>
-            {{ else }}
-                <a href="/analysis" style="display: inline-block; background-color: #dc2626; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
-                    ❌ Retirer le filtre
-                </a>
-            {{ end }}
-        {{ end }}
-    </form>
-    <p style="color: #adadb8; font-size: 0.85rem; margin: 0.5rem 0 0 0;">
-        💡 Le Broadcaster ID permet de filtrer les résultats pour une chaîne spécifique dans les captures multi-chaînes.
-    </p>
-</div>
-
 {{ if .Summary }}
+    <!-- Filtre par chaînes (si plusieurs broadcasters présents) -->
+    {{ if gt (len .Summary.Broadcasters) 1 }}
     <div style="background-color: #18181b; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #9147ff;">
-        <h3 style="margin-top: 0; color: #9147ff;">📊 Résumé global</h3>
+        <h3 style="margin-top: 0; color: #9147ff;">🔍 Filtrer par chaîne</h3>
+        <form method="GET" id="filter-form">
+            <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 0.75rem; margin-bottom: 1rem;">
+                {{ range .Summary.Broadcasters }}
+                <label style="display: flex; align-items: center; gap: 0.5rem; padding: 0.75rem; background-color: #0e0e10; border-radius: 4px; cursor: pointer; border: 2px solid transparent; transition: border-color 0.2s;" onmouseover="this.style.borderColor='#9147ff'" onmouseout="if(!this.querySelector('input').checked) this.style.borderColor='transparent'">
+                    <input 
+                        type="checkbox" 
+                        name="broadcaster_id" 
+                        value="{{ .BroadcasterID }}" 
+                        {{ if contains $.BroadcasterIDs .BroadcasterID }}checked{{ end }}
+                        style="width: 18px; height: 18px; cursor: pointer;"
+                        onchange="document.getElementById('filter-form').submit()"
+                    />
+                    <div style="flex: 1;">
+                        <div style="font-weight: 600; color: #efeff1;">{{ .BroadcasterLogin }}</div>
+                        <div style="font-size: 0.85rem; color: #adadb8;">{{ .CaptureCount }} capture(s)</div>
+                    </div>
+                </label>
+                {{ end }}
+            </div>
+            
+            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center;">
+                <button type="submit" style="background-color: #9147ff; color: #fff; padding: 0.5rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer;">
+                    Appliquer le filtre
+                </button>
+                
+                {{ if .BroadcasterIDs }}
+                    {{ if .IsSaved }}
+                        <a href="/analysis/saved/{{ .SessionUUID }}" style="display: inline-block; background-color: #dc2626; color: #fff; padding: 0.5rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                            ❌ Réinitialiser les filtres
+                        </a>
+                    {{ else }}
+                        <a href="/analysis" style="display: inline-block; background-color: #dc2626; color: #fff; padding: 0.5rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                            ❌ Réinitialiser les filtres
+                        </a>
+                    {{ end }}
+                    <span style="color: #adadb8; font-size: 0.9rem;">
+                        🔍 {{ len .BroadcasterIDs }} filtre(s) actif(s)
+                    </span>
+                {{ end }}
+            </div>
+        </form>
+    </div>
+    {{ end }}
+
+    <div style="background-color: #18181b; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #22c55e;">
+        <h3 style="margin-top: 0; color: #22c55e;">📊 Résumé global</h3>
+        {{ if .BroadcasterIDs }}
+            <p style="color: #f59e0b; margin-bottom: 1rem;">
+                🔍 Vue filtrée : {{ len .BroadcasterIDs }} chaîne(s) sélectionnée(s)
+            </p>
+        {{ end }}
         <p style="font-size: 1.2rem; margin: 0.5rem 0;"><strong>{{ .Summary.TotalAccounts }}</strong> comptes distincts capturés</p>
         <p style="color: #adadb8; font-size: 0.9rem; margin: 0.5rem 0;" data-utc-date="{{ .Summary.GeneratedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">Données générées le {{ .Summary.GeneratedAt.Format "02/01/2006 à 15:04" }}</p>
     </div>
