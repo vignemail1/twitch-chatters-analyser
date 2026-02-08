@@ -5,13 +5,10 @@
 {{ define "title" }}{{ .Title }}{{ end }}
 
 {{ define "content" }}
-{{ template "analysis_content" . }}
-{{ end }}
-
-{{ define "analysis_content" }}
 <h2>Analyse de la session</h2>
 
 <p>Session UUID : {{ .SessionUUID }}</p>
+{{ if .Summary }}
 <p>Nombre total de comptes distincts : {{ .Summary.TotalAccounts }}</p>
 <p>Données générées le : {{ .Summary.GeneratedAt }}</p>
 
@@ -36,5 +33,8 @@
         {{ end }}
         </tbody>
     </table>
+{{ end }}
+{{ else }}
+    <p>Aucun résumé disponible pour cette session.</p>
 {{ end }}
 {{ end }}
