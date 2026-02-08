@@ -1,0 +1,92 @@
+{{ define "sessions.html" }}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <title>{{ .Title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="/static/css/main.css" rel="stylesheet" />
+</head>
+<body class="dark">
+<header>
+    <h1>Twitch Chatters Analyser</h1>
+    <div class="user-info">
+        {{ if .CurrentUser }}
+            Connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong> ({{ .CurrentUser.Login }})
+            <p><a href="/">Accueil</a> | <a href="/channels">Mes chaînes</a></p>
+            {{ if .HasActiveSession }}
+            <p><a href="/analysis">Voir l'analyse de la session</a></p>
+            {{ end }}
+            <p><a href="/auth/logout" style="color: #ef4444;">Se déconnecter</a></p>
+        {{ else }}
+            <a href="/auth/login">Se connecter avec Twitch</a>
+        {{ end }}
+    </div>
+</header>
+<main>
+<h2>Mes sessions sauvegardées</h2>
+
+{{ if .Saved }}
+    <div class="info" style="background-color: #15803d; border-left-color: #22c55e; margin-bottom: 1.5rem;">
+        <p><strong>✅ Session sauvegardée avec succès</strong></p>
+        <p>Votre session d'analyse a été conservée et ne sera pas supprimée lors de la déconnexion.</p>
+    </div>
+{{ end }}
+
+{{ if .Deleted }}
+    <div class="info" style="background-color: #dc2626; border-left-color: #ef4444; margin-bottom: 1.5rem;">
+        <p><strong>🗑️ Session supprimée avec succès</strong></p>
+        <p>La session et toutes ses captures ont été définitivement supprimées.</p>
+    </div>
+{{ end }}
+
+{{ if not .Sessions }}
+    <div class="info">
+        <p>📋 Aucune session sauvegardée pour le moment.</p>
+        <p>Lorsque vous consultez une analyse de session active, vous pouvez la sauvegarder pour la conserver.</p>
+        <p><a href="/channels">Capturer des chatters maintenant</a></p>
+    </div>
+{{ else }}
+    <table>
+        <thead>
+        <tr>
+            <th>UUID</th>
+            <th>Statut</th>
+            <th>Créée le</th>
+            <th>Mise à jour</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ range .Sessions }}
+            <tr>
+                <td><code style="background-color: #1f1f23; padding: 0.2rem 0.4rem; border-radius: 3px;">{{ .SessionUUID }}</code></td>
+                <td>
+                    {{ if eq .Status "saved" }}
+                        <span style="color: #22c55e;">✔️ Sauvegardée</span>
+                    {{ else }}
+                        <span style="color: #adadb8;">{{ .Status }}</span>
+                    {{ end }}
+                </td>
+                <td>{{ .CreatedAt.Format "02/01/2006 15:04" }}</td>
+                <td>{{ .UpdatedAt.Format "02/01/2006 15:04" }}</td>
+                <td>
+                    <form method="post" action="/sessions/delete" style="display: inline;">
+                        <input type="hidden" name="session_uuid" value="{{ .SessionUUID }}">
+                        <button type="submit" style="background-color: #dc2626; border-color: #dc2626;" onclick="return confirm('Supprimer définitivement cette session ?')">🗑️ Supprimer</button>
+                    </form>
+                </td>
+            </tr>
+        {{ end }}
+        </tbody>
+    </table>
+{{ end }}
+
+<div style="margin-top: 2rem;">
+    <h3>💡 Astuce</h3>
+    <p style="color: #adadb8;">Les sessions sauvegardées ne seront pas supprimées lors de la déconnexion. Vous pouvez les consulter à tout moment pour comparer les résultats d'analyses précédentes.</p>
+</div>
+</main>
+</body>
+</html>
+{{ end }}
