@@ -21,7 +21,7 @@
     </div>
 </header>
 <main>
-<h2>📊 Analyse de la session</h2>
+<h2>📊 Analyse de {{ if .IsSaved }}session sauvegardée{{ else }}la session{{ end }}</h2>
 
 {{ if .Purged }}
 <div class="info" style="background-color: #15803d; border-left-color: #22c55e; margin-bottom: 1.5rem;">
@@ -32,6 +32,9 @@
 
 <div class="info" style="margin-bottom: 2rem;">
     <p><strong>Session UUID :</strong> <code style="background-color: #0e0e10; padding: 0.2rem 0.4rem; border-radius: 3px;">{{ .SessionUUID }}</code></p>
+    {{ if .IsSaved }}
+    <p style="color: #22c55e; font-weight: 600;">✔️ Cette session est sauvegardée</p>
+    {{ end }}
     {{ if .BroadcasterID }}
     <p><strong>Filtré pour :</strong> Broadcaster ID {{ .BroadcasterID }}</p>
     {{ end }}
@@ -111,23 +114,30 @@
 {{ end }}
 
 <div style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #2d2d31; display: flex; gap: 1rem; flex-wrap: wrap; justify-content: center; align-items: center;">
-    <a href="/channels" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
-        ← Retour aux chaînes
-    </a>
-    
-    <form method="POST" action="/sessions/save" style="display: inline-block;">
-        <button type="submit" style="background-color: #15803d; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 1rem;">
-            💾 Sauvegarder la session
-        </button>
-    </form>
-    
-    <form method="POST" action="/sessions/purge" style="display: inline-block;" onsubmit="return confirm('Voulez-vous vraiment supprimer TOUTES les captures de cette session ? Cette action est irréversible.')">
-        <button type="submit" style="background-color: #991b1b; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 1rem;">
-            🗑️ Purger la session
-        </button>
-    </form>
+    {{ if .IsSaved }}
+        <a href="/sessions" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+            ← Retour aux sessions sauvegardées
+        </a>
+    {{ else }}
+        <a href="/channels" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+            ← Retour aux chaînes
+        </a>
+        
+        <form method="POST" action="/sessions/save" style="display: inline-block;">
+            <button type="submit" style="background-color: #15803d; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 1rem;">
+                💾 Sauvegarder la session
+            </button>
+        </form>
+        
+        <form method="POST" action="/sessions/purge" style="display: inline-block;" onsubmit="return confirm('Voulez-vous vraiment supprimer TOUTES les captures de cette session ? Cette action est irréversible.')">
+            <button type="submit" style="background-color: #991b1b; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 1rem;">
+                🗑️ Purger la session
+            </button>
+        </form>
+    {{ end }}
 </div>
 
+{{ if not .IsSaved }}
 <div style="margin-top: 2rem; padding: 1rem; background-color: #18181b; border-radius: 4px;">
     <h4 style="margin-top: 0; color: #efeff1;">💡 Astuce</h4>
     <p style="color: #adadb8; margin: 0;">
@@ -135,6 +145,7 @@
         <strong>Purger</strong> supprime définitivement toutes les captures de cette session active.
     </p>
 </div>
+{{ end }}
 </main>
 </body>
 </html>
