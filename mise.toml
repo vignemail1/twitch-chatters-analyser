@@ -1,0 +1,10 @@
+[tools]
+go = "latest"
+
+[tasks.resetdb]
+
+run = """
+docker compose down db
+docker compose rm db
+docker volume rm twitch-chatters-analyser_db_data
+"""

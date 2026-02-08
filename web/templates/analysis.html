@@ -1,0 +1,36 @@
+{{ define "analysis.html" }}
+{{ template "base.html" . }}
+{{ end }}
+
+{{ define "title" }}{{ .Title }}{{ end }}
+
+{{ define "content" }}
+<h2>Analyse de la session</h2>
+
+<p>Session UUID : {{ .SessionUUID }}</p>
+<p>Nombre total de comptes distincts : {{ .Summary.TotalAccounts }}</p>
+<p>Données générées le : {{ .Summary.GeneratedAt }}</p>
+
+<h3>Top 10 des jours de création de comptes</h3>
+
+{{ if not .Summary.TopDays }}
+    <p>Aucune donnée disponible (pas de chatters capturés ou pas encore enrichis).</p>
+{{ else }}
+    <table>
+        <thead>
+        <tr>
+            <th>Date</th>
+            <th>Nombre de comptes</th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ range .Summary.TopDays }}
+            <tr>
+                <td>{{ .Date }}</td>
+                <td>{{ .Count }}</td>
+            </tr>
+        {{ end }}
+        </tbody>
+    </table>
+{{ end }}
+{{ end }}

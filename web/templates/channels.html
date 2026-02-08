@@ -1,0 +1,46 @@
+{{ define "channels.html" }}
+{{ template "base.html" . }}
+{{ end }}
+
+{{ define "title" }}{{ .Title }}{{ end }}
+
+{{ define "content" }}
+<h2>Mes chaînes modérées</h2>
+
+{{ if .CaptureEnqueued }}
+    <p style="color: lime;">Une capture a été planifiée. Elle sera traitée par le worker.</p>
+{{ end }}
+
+{{ if not .Channels }}
+    <p>Aucune chaîne modérée trouvée (ou l'accès user:read:moderated_channels est manquant).</p>
+{{ else }}
+    <table>
+        <thead>
+        <tr>
+            <th>ID</th>
+            <th>Login</th>
+            <th>Nom</th>
+            <th>Actions</th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ range .Channels }}
+            <tr>
+                <td>{{ .BroadcasterID }}</td>
+                <td>{{ .BroadcasterLogin }}</td>
+                <td>{{ .BroadcasterName }}</td>
+                <td>
+                    <!-- bouton de capture qui pointera plus tard vers l’endpoint de création de job -->
+                    <form method="post" action="/sessions/capture">
+                        <input type="hidden" name="broadcaster_id" value="{{ .BroadcasterID }}">
+                        <input type="hidden" name="broadcaster_login" value="{{ .BroadcasterLogin }}">
+                        <button type="submit">Capturer les chatters</button>
+                    </form>
+                </td>
+            </tr>
+        {{ end }}
+        </tbody>
+    </table>
+{{ end }}
+
+{{ end }}
