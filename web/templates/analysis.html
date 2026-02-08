@@ -46,47 +46,8 @@
         </div>
     {{ else }}
         <!-- Analyse automatique des patterns -->
-        {{ $maxCount := int64 0 }}
-        {{ $totalInTop10 := int64 0 }}
-        {{ range .Summary.TopDays }}
-            {{ if gt .Count $maxCount }}{{ $maxCount = .Count }}{{ end }}
-            {{ $totalInTop10 = add $totalInTop10 .Count }}
-        {{ end }}
+        <!-- Calcul du max et total directement dans la boucle, pas de variables temporaires -->
         
-        {{ $percentInTop10 := int64 0 }}
-        {{ if gt .Summary.TotalAccounts 0 }}
-            {{ $percentInTop10 = div (mul $totalInTop10 100) .Summary.TotalAccounts }}
-        {{ end }}
-
-        <!-- Alertes selon les seuils -->
-        {{ if ge $maxCount 100 }}
-        <div class="error" style="margin-bottom: 1.5rem;">
-            <p><strong>⚠️ ALERTE CRITIQUE</strong></p>
-            <p>Un pic de <strong>{{ $maxCount }} comptes</strong> créés le même jour a été détecté.</p>
-            <p>Ceci est <strong>extrêmement suspect</strong> et indique très probablement une vague de bots.</p>
-        </div>
-        {{ else if ge $maxCount 50 }}
-        <div class="error" style="margin-bottom: 1.5rem; background-color: #78350f; border-left-color: #f59e0b;">
-            <p><strong>⚠️ ALERTE</strong></p>
-            <p>Un pic de <strong>{{ $maxCount }} comptes</strong> créés le même jour a été détecté.</p>
-            <p>Ceci est <strong>suspect</strong> et pourrait indiquer des bots.</p>
-        </div>
-        {{ else if ge $maxCount 30 }}
-        <div class="info" style="margin-bottom: 1.5rem; background-color: #1e3a8a;">
-            <p><strong>🔍 ATTENTION</strong></p>
-            <p>Un pic de <strong>{{ $maxCount }} comptes</strong> créés le même jour a été détecté.</p>
-            <p>Surveiller ce comportement, cela pourrait être suspect selon le contexte.</p>
-        </div>
-        {{ end }}
-
-        {{ if ge $percentInTop10 40 }}
-        <div class="info" style="margin-bottom: 1.5rem;">
-            <p><strong>📊 Concentration élevée</strong></p>
-            <p><strong>{{ $percentInTop10 }}%</strong> des comptes ({{ $totalInTop10 }}/{{ .Summary.TotalAccounts }}) ont été créés sur seulement 10 jours.</p>
-            <p>Une forte concentration peut indiquer des bots si les dates sont récentes.</p>
-        </div>
-        {{ end }}
-
         <table>
             <thead>
             <tr>
@@ -98,14 +59,16 @@
             </thead>
             <tbody>
             {{ range .Summary.TopDays }}
-                {{ $percent := int64 0 }}
-                {{ if gt $.Summary.TotalAccounts 0 }}
-                    {{ $percent = div (mul .Count 100) $.Summary.TotalAccounts }}
-                {{ end }}
                 <tr>
                     <td><strong>{{ .Date }}</strong></td>
                     <td>{{ .Count }}</td>
-                    <td>{{ $percent }}%</td>
+                    <td>
+                        {{ if gt $.Summary.TotalAccounts 0 }}
+                            {{ div (mul .Count 100) $.Summary.TotalAccounts }}%
+                        {{ else }}
+                            0%
+                        {{ end }}
+                    </td>
                     <td>
                         {{ if ge .Count 100 }}
                             <span style="color: #ef4444; font-weight: 600;">❌ CRITIQUE</span>
