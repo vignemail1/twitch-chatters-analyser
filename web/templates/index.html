@@ -9,7 +9,7 @@
 
 {{ if .CurrentUser }}
     <div class="info">
-        <p>Vous êtes connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong>.</p>
+        <p>Vous êtes connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong>. <a href="/auth/logout" style="color: #ef4444;">Se déconnecter</a></p>
     </div>
     
     <h3>🚀 Démarrage rapide</h3>
@@ -18,7 +18,11 @@
         <li>Consultez vos <a href="/channels">chaînes modérées</a></li>
         <li>Cliquez sur "Capturer les chatters" pour la chaîne de votre choix</li>
         <li>Attendez que le worker traite la capture (quelques secondes à minutes)</li>
+        {{ if .HasActiveSession }}
         <li>Consultez l'<a href="/analysis">analyse de session</a> pour voir les résultats</li>
+        {{ else }}
+        <li>Consultez l'analyse de session après avoir capturé des chatters</li>
+        {{ end }}
     </ol>
     
     <h3>📊 Fonctionnalités</h3>
@@ -28,6 +32,7 @@
         <li><strong>Top 10 des jours</strong> avec le plus de comptes créés</li>
         <li><strong>Sessions d'analyse</strong> pour comparer plusieurs captures</li>
         <li><strong>Historique des renommages</strong> pour identifier les comptes suspects</li>
+        <li><strong>Sauvegarde de sessions</strong> pour consulter vos analyses plus tard</li>
     </ul>
     
     <h3>🔍 Que chercher ?</h3>
