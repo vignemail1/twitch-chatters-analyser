@@ -6,6 +6,7 @@
     <title>{{ .Title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link href="/static/css/main.css" rel="stylesheet" />
+    <script src="/static/js/timezone.js"></script>
 </head>
 <body class="dark">
 <header>
@@ -44,7 +45,7 @@
     <div style="background-color: #18181b; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #9147ff;">
         <h3 style="margin-top: 0; color: #9147ff;">📊 Résumé global</h3>
         <p style="font-size: 1.2rem; margin: 0.5rem 0;"><strong>{{ .Summary.TotalAccounts }}</strong> comptes distincts capturés</p>
-        <p style="color: #adadb8; font-size: 0.9rem; margin: 0.5rem 0;">Données générées le {{ .Summary.GeneratedAt.Format "02/01/2006 à 15:04" }}</p>
+        <p style="color: #adadb8; font-size: 0.9rem; margin: 0.5rem 0;" data-utc-date="{{ .Summary.GeneratedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">Données générées le {{ .Summary.GeneratedAt.Format "02/01/2006 à 15:04" }}</p>
     </div>
 
     <h3>📅 Top 10 des jours de création de comptes</h3>
