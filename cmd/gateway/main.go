@@ -82,14 +82,21 @@ type twitchModeratedChannelsResponse struct {
 	} `json:"data"`
 }
 
+type Broadcaster struct {
+	BroadcasterID    string `json:"broadcaster_id"`
+	BroadcasterLogin string `json:"broadcaster_login"`
+	CaptureCount     int64  `json:"capture_count"`
+}
+
 type AnalysisSummary struct {
-	SessionUUID   string `json:"session_uuid"`
-	TotalAccounts int64  `json:"total_accounts"`
+	SessionUUID   string        `json:"session_uuid"`
+	TotalAccounts int64         `json:"total_accounts"`
 	TopDays       []struct {
 		Date  string `json:"date"`
 		Count int64  `json:"count"`
 	} `json:"top_days"`
-	GeneratedAt time.Time `json:"generated_at"`
+	Broadcasters []Broadcaster `json:"broadcasters"`
+	GeneratedAt  time.Time     `json:"generated_at"`
 }
 
 type SavedSession struct {
@@ -157,6 +164,14 @@ func main() {
 				return 0
 			}
 			return a / b
+		},
+		"contains": func(slice []string, item string) bool {
+			for _, s := range slice {
+				if s == item {
+					return true
+				}
+			}
+			return false
 		},
 	}
 
@@ -1174,10 +1189,10 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionnel : filtre broadcaster_id en query string
-	broadcasterID := r.URL.Query().Get("broadcaster_id")
+	// Optionnel : filtre broadcaster_id en query string (peut être multiple)
+	broadcasterIDs := r.URL.Query()["broadcaster_id"]
 
-	summary, err := a.fetchAnalysisSummary(r.Context(), sessionUUID, broadcasterID)
+	summary, err := a.fetchAnalysisSummary(r.Context(), sessionUUID, strings.Join(broadcasterIDs, ","))
 	if err != nil {
 		log.Printf("fetchAnalysisSummary error: %v", err)
 		http.Error(w, "failed to load analysis", http.StatusBadGateway)
@@ -1185,21 +1200,21 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Title         string
-		CurrentUser   *CurrentUser
-		SessionUUID   string
-		Summary       *AnalysisSummary
-		BroadcasterID string
-		Purged        bool
-		IsSaved       bool
+		Title           string
+		CurrentUser     *CurrentUser
+		SessionUUID     string
+		Summary         *AnalysisSummary
+		BroadcasterIDs  []string
+		Purged          bool
+		IsSaved         bool
 	}{
-		Title:         "Analyse de session",
-		CurrentUser:   u,
-		SessionUUID:   sessionUUID,
-		Summary:       summary,
-		BroadcasterID: broadcasterID,
-		Purged:        r.URL.Query().Get("purged") == "1",
-		IsSaved:       false,
+		Title:           "Analyse de session",
+		CurrentUser:     u,
+		SessionUUID:     sessionUUID,
+		Summary:         summary,
+		BroadcasterIDs:  broadcasterIDs,
+		Purged:          r.URL.Query().Get("purged") == "1",
+		IsSaved:         false,
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
@@ -1241,10 +1256,10 @@ func (a *App) handleSavedAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Optionnel : filtre broadcaster_id en query string
-	broadcasterID := r.URL.Query().Get("broadcaster_id")
+	// Optionnel : filtre broadcaster_id en query string (peut être multiple)
+	broadcasterIDs := r.URL.Query()["broadcaster_id"]
 
-	summary, err := a.fetchAnalysisSummary(r.Context(), sessionUUID, broadcasterID)
+	summary, err := a.fetchAnalysisSummary(r.Context(), sessionUUID, strings.Join(broadcasterIDs, ","))
 	if err != nil {
 		log.Printf("fetchAnalysisSummary error: %v", err)
 		http.Error(w, "failed to load analysis", http.StatusBadGateway)
@@ -1252,21 +1267,21 @@ func (a *App) handleSavedAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Title         string
-		CurrentUser   *CurrentUser
-		SessionUUID   string
-		Summary       *AnalysisSummary
-		BroadcasterID string
-		Purged        bool
-		IsSaved       bool
+		Title           string
+		CurrentUser     *CurrentUser
+		SessionUUID     string
+		Summary         *AnalysisSummary
+		BroadcasterIDs  []string
+		Purged          bool
+		IsSaved         bool
 	}{
-		Title:         "Analyse de session sauvegardée",
-		CurrentUser:   u,
-		SessionUUID:   sessionUUID,
-		Summary:       summary,
-		BroadcasterID: broadcasterID,
-		Purged:        false,
-		IsSaved:       true,
+		Title:           "Analyse de session sauvegardée",
+		CurrentUser:     u,
+		SessionUUID:     sessionUUID,
+		Summary:         summary,
+		BroadcasterIDs:  broadcasterIDs,
+		Purged:          false,
+		IsSaved:         true,
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
@@ -1275,11 +1290,11 @@ func (a *App) handleSavedAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *App) fetchAnalysisSummary(ctx context.Context, sessionUUID, broadcasterID string) (*AnalysisSummary, error) {
+func (a *App) fetchAnalysisSummary(ctx context.Context, sessionUUID, broadcasterIDs string) (*AnalysisSummary, error) {
 	urlStr := a.analysisBaseURL + "/sessions/" + sessionUUID + "/summary"
-	if broadcasterID != "" {
+	if broadcasterIDs != "" {
 		q := url.Values{}
-		q.Set("broadcaster_id", broadcasterID)
+		q.Set("broadcaster_id", broadcasterIDs)
 		urlStr += "?" + q.Encode()
 	}
 
