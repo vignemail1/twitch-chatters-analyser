@@ -809,8 +809,8 @@ WHERE c.session_id = ?
 		return
 	}
 
-	// 3. Marquer la session comme 'purged' ou supprimer
-	_, err = a.db.ExecContext(r.Context(), `UPDATE sessions SET status = 'purged', updated_at = NOW(6) WHERE id = ?`, sessionID)
+	// 3. Marquer la session comme 'deleted' (valeur valide dans l'ENUM)
+	_, err = a.db.ExecContext(r.Context(), `UPDATE sessions SET status = 'deleted', updated_at = NOW(6) WHERE id = ?`, sessionID)
 	if err != nil {
 		log.Printf("update session error: %v", err)
 		http.Error(w, "failed to purge session", http.StatusInternalServerError)
