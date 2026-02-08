@@ -81,7 +81,8 @@ func main() {
 
 	pollIntervalSecs := getenvInt("JOB_POLL_INTERVAL", 2)
 
-	log.Printf("worker started, poll interval=%ds", pollIntervalSecs)
+	twitchAPIBase := getenv("TWITCH_API_BASE_URL", "http://twitch-api:8081")
+	log.Printf("worker started, poll interval=%ds, twitch-api=%s", pollIntervalSecs, twitchAPIBase)
 
 	ticker := time.NewTicker(time.Duration(pollIntervalSecs) * time.Second)
 	defer ticker.Stop()
@@ -97,7 +98,7 @@ func main() {
 }
 
 func processOneJob(db *sql.DB) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	tx, err := db.BeginTx(ctx, nil)
@@ -210,7 +211,7 @@ func handleFetchChatters(ctx context.Context, db *sql.DB, job Job) error {
 		`SELECT ws.access_token
          FROM web_sessions ws
          JOIN sessions s ON s.user_id = ws.user_id
-         WHERE s.id = ? AND s.status = 'active' AND ws.expires_at > NOW(6)
+         WHERE s.id = ? AND ws.expires_at > NOW(6)
          ORDER BY ws.last_activity_at DESC
          LIMIT 1`,
 		payload.SessionID,
@@ -219,7 +220,7 @@ func handleFetchChatters(ctx context.Context, db *sql.DB, job Job) error {
 		return fmt.Errorf("cannot get access token for session %d: %w", payload.SessionID, err)
 	}
 
-	// Appeler Twitch /helix/chat/chatters avec pagination
+	// Appeler le service twitch-api proxy pour /chatters
 	chatters, err := fetchAllChatters(ctx, accessToken, payload.BroadcasterID, payload.TwitchUserID)
 	if err != nil {
 		return fmt.Errorf("fetchAllChatters: %w", err)
@@ -237,10 +238,7 @@ func handleFetchChatters(ctx context.Context, db *sql.DB, job Job) error {
 }
 
 func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderatorID string) ([]string, error) {
-	clientID := getenv("TWITCH_CLIENT_ID", "")
-	if clientID == "" {
-		return nil, fmt.Errorf("TWITCH_CLIENT_ID not set in worker env")
-	}
+	twitchAPIBase := getenv("TWITCH_API_BASE_URL", "http://twitch-api:8081")
 
 	allIDs := make([]string, 0, 1024)
 	cursor := ""
@@ -255,11 +253,11 @@ func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderator
 			params.Set("after", cursor)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/chat/chatters?"+params.Encode(), nil)
+		// Appel au proxy twitch-api au lieu de l'API Twitch directement
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, twitchAPIBase+"/chatters?"+params.Encode(), nil)
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Client-ID", clientID)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 
 		resp, err := http.DefaultClient.Do(req)
@@ -270,14 +268,13 @@ func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderator
 			defer resp.Body.Close()
 
 			if resp.StatusCode == http.StatusTooManyRequests {
-				// rate limit atteint : simple backoff (améliorable plus tard)
-				log.Printf("rate limited on getChatters, sleeping 10s")
-				time.Sleep(10 * time.Second)
+				log.Printf("rate limited from twitch-api proxy, sleeping 5s")
+				time.Sleep(5 * time.Second)
 				return
 			}
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				body, _ := io.ReadAll(resp.Body)
-				err = fmt.Errorf("getChatters returned %s: %s", resp.Status, string(body))
+				err = fmt.Errorf("twitch-api /chatters returned %s: %s", resp.Status, string(body))
 				return
 			}
 
@@ -300,8 +297,8 @@ func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderator
 			break
 		}
 
-		// léger sleep pour éviter de spammer l'API
-		time.Sleep(300 * time.Millisecond)
+		// Léger sleep pour éviter de spammer le proxy
+		time.Sleep(200 * time.Millisecond)
 	}
 
 	return allIDs, nil
@@ -402,7 +399,7 @@ func handleFetchUsersInfo(ctx context.Context, db *sql.DB, job Job) error {
 		`SELECT ws.access_token
          FROM web_sessions ws
          JOIN sessions s ON s.user_id = ws.user_id
-         WHERE s.id = ? AND s.status = 'active' AND ws.expires_at > NOW(6)
+         WHERE s.id = ? AND ws.expires_at > NOW(6)
          ORDER BY ws.last_activity_at DESC
          LIMIT 1`,
 		payload.SessionID,
@@ -411,9 +408,9 @@ func handleFetchUsersInfo(ctx context.Context, db *sql.DB, job Job) error {
 		return fmt.Errorf("cannot get access token for session %d: %w", payload.SessionID, err)
 	}
 
-	users, err := fetchUsersInfoFromTwitch(ctx, accessToken, userIDs)
+	users, err := fetchUsersInfoFromTwitchAPI(ctx, accessToken, userIDs)
 	if err != nil {
-		return fmt.Errorf("fetchUsersInfoFromTwitch: %w", err)
+		return fmt.Errorf("fetchUsersInfoFromTwitchAPI: %w", err)
 	}
 
 	if err := upsertTwitchUsers(ctx, db, users); err != nil {
@@ -424,11 +421,8 @@ func handleFetchUsersInfo(ctx context.Context, db *sql.DB, job Job) error {
 	return nil
 }
 
-func fetchUsersInfoFromTwitch(ctx context.Context, accessToken string, userIDs []string) ([]helixUser, error) {
-	clientID := getenv("TWITCH_CLIENT_ID", "")
-	if clientID == "" {
-		return nil, fmt.Errorf("TWITCH_CLIENT_ID not set in worker env")
-	}
+func fetchUsersInfoFromTwitchAPI(ctx context.Context, accessToken string, userIDs []string) ([]helixUser, error) {
+	twitchAPIBase := getenv("TWITCH_API_BASE_URL", "http://twitch-api:8081")
 
 	const batchSize = 100 // max IDs par requête
 	all := make([]helixUser, 0, len(userIDs))
@@ -445,11 +439,11 @@ func fetchUsersInfoFromTwitch(ctx context.Context, accessToken string, userIDs [
 			params.Add("id", id)
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/users?"+params.Encode(), nil)
+		// Appel au proxy twitch-api
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, twitchAPIBase+"/users?"+params.Encode(), nil)
 		if err != nil {
 			return nil, err
 		}
-		req.Header.Set("Client-ID", clientID)
 		req.Header.Set("Authorization", "Bearer "+accessToken)
 
 		resp, err := http.DefaultClient.Do(req)
@@ -460,13 +454,13 @@ func fetchUsersInfoFromTwitch(ctx context.Context, accessToken string, userIDs [
 			defer resp.Body.Close()
 
 			if resp.StatusCode == http.StatusTooManyRequests {
-				log.Printf("rate limited on /helix/users, sleeping 10s")
-				time.Sleep(10 * time.Second)
+				log.Printf("rate limited from twitch-api proxy on /users, sleeping 5s")
+				time.Sleep(5 * time.Second)
 				return
 			}
 			if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 				body, _ := io.ReadAll(resp.Body)
-				err = fmt.Errorf("users endpoint returned %s: %s", resp.Status, string(body))
+				err = fmt.Errorf("twitch-api /users returned %s: %s", resp.Status, string(body))
 				return
 			}
 
@@ -481,7 +475,7 @@ func fetchUsersInfoFromTwitch(ctx context.Context, accessToken string, userIDs [
 			return nil, err
 		}
 
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	return all, nil
