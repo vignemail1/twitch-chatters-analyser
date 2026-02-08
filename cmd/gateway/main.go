@@ -91,6 +91,13 @@ type AnalysisSummary struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
+type SavedSession struct {
+	ID          int64
+	SessionUUID string
+	Status      string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
 
 func main() {
 	port := getenv("APP_PORT", "8080")
@@ -155,11 +162,15 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analysis", app.handleAnalysis)
+	mux.HandleFunc("/sessions", app.handleSessions)
 	mux.HandleFunc("/sessions/capture", app.handleCreateCapture)
+	mux.HandleFunc("/sessions/save", app.handleSaveSession)
+	mux.HandleFunc("/sessions/delete", app.handleDeleteSession)
 	mux.HandleFunc("/sessions/purge", app.handlePurgeSession)
 	mux.HandleFunc("/channels", app.handleChannels)
 	mux.HandleFunc("/auth/login", app.handleAuthLogin)
 	mux.HandleFunc("/auth/callback", app.handleAuthCallback)
+	mux.HandleFunc("/auth/logout", app.handleLogout)
 	mux.HandleFunc("/healthz", app.handleHealth)
 	mux.HandleFunc("/", app.handleIndex)
 
@@ -199,12 +210,27 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 	u := currentUser(r.Context())
 
+	// Vérifier s'il y a une session active
+	hasActiveSession := false
+	if u != nil {
+		var count int
+		err := a.db.QueryRowContext(r.Context(),
+			`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND status = 'active'`,
+			u.ID,
+		).Scan(&count)
+		if err == nil && count > 0 {
+			hasActiveSession = true
+		}
+	}
+
 	data := struct {
-		Title       string
-		CurrentUser *CurrentUser
+		Title            string
+		CurrentUser      *CurrentUser
+		HasActiveSession bool
 	}{
-		Title:       "Twitch Chatters Analyser - Gateway",
-		CurrentUser: u,
+		Title:            "Twitch Chatters Analyser - Gateway",
+		CurrentUser:      u,
+		HasActiveSession: hasActiveSession,
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -334,6 +360,95 @@ func (a *App) handleAuthCallback(w http.ResponseWriter, r *http.Request) {
 	// Redirection vers la home (plus tard, vers /channels ou /sessions)
 	http.Redirect(w, r, "/", http.StatusFound)
 
+}
+
+func (a *App) handleLogout(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/", http.StatusFound)
+		return
+	}
+
+	// Récupérer le token pour révoquer
+	c, err := r.Cookie("tca_session")
+	var accessToken string
+	if err == nil && c.Value != "" {
+		sess, err := a.getSessionData(r.Context(), c.Value)
+		if err == nil {
+			accessToken = sess.AccessToken
+		}
+	}
+
+	// Purger la session active si elle existe et n'est pas saved
+	var sessionID int64
+	var status string
+	err = a.db.QueryRowContext(r.Context(),
+		`SELECT id, status FROM sessions WHERE user_id = ? AND status = 'active' LIMIT 1`,
+		u.ID,
+	).Scan(&sessionID, &status)
+	if err == nil {
+		// Supprimer les captures
+		_, _ = a.db.ExecContext(r.Context(), `
+DELETE cc FROM capture_chatters cc
+JOIN captures c ON cc.capture_id = c.id
+WHERE c.session_id = ?
+`, sessionID)
+		_, _ = a.db.ExecContext(r.Context(), `DELETE FROM captures WHERE session_id = ?`, sessionID)
+		_, _ = a.db.ExecContext(r.Context(), `UPDATE sessions SET status = 'deleted', updated_at = NOW(6) WHERE id = ?`, sessionID)
+		log.Printf("session %d auto-purged on logout by user %d", sessionID, u.ID)
+	}
+
+	// Supprimer la web_session
+	if c != nil && c.Value != "" {
+		_, _ = a.db.ExecContext(r.Context(), `DELETE FROM web_sessions WHERE session_id = ?`, c.Value)
+	}
+
+	// Révoquer le token Twitch
+	if accessToken != "" {
+		_ = a.revokeTwitchToken(r.Context(), accessToken)
+	}
+
+	// Supprimer les cookies
+	http.SetCookie(w, &http.Cookie{
+		Name:     "tca_session",
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:   "tca_oauth_state",
+		Value:  "",
+		Path:   "/",
+		MaxAge: -1,
+	})
+
+	log.Printf("user %d logged out", u.ID)
+	http.Redirect(w, r, "/?logged_out=1", http.StatusFound)
+}
+
+func (a *App) revokeTwitchToken(ctx context.Context, accessToken string) error {
+	data := url.Values{}
+	data.Set("client_id", a.twitchClientID)
+	data.Set("token", accessToken)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://id.twitch.tv/oauth2/revoke", strings.NewReader(data.Encode()))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("twitch revoke returned %s", resp.Status)
+	}
+	return nil
 }
 
 func (a *App) exchangeCodeForToken(ctx context.Context, code string) (*twitchTokenResponse, error) {
@@ -572,22 +687,35 @@ func (a *App) handleChannels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Vérifier s'il y a une session active
+	hasActiveSession := false
+	var count int
+	err = a.db.QueryRowContext(r.Context(),
+		`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND status = 'active'`,
+		u.ID,
+	).Scan(&count)
+	if err == nil && count > 0 {
+		hasActiveSession = true
+	}
+
 	data := struct {
-		Title       string
-		CurrentUser *CurrentUser
-		Channels    []struct {
+		Title            string
+		CurrentUser      *CurrentUser
+		Channels         []struct {
 			BroadcasterID    string
 			BroadcasterLogin string
 			BroadcasterName  string
 		}
-		CaptureEnqueued bool
-		SessionPurged   bool
+		CaptureEnqueued  bool
+		SessionPurged    bool
+		HasActiveSession bool
 	}{
-		Title:           "Mes chaînes modérées",
-		CurrentUser:     u,
-		Channels:        channels,
-		CaptureEnqueued: r.URL.Query().Get("capture_enqueued") == "1",
-		SessionPurged:   r.URL.Query().Get("purged") == "1",
+		Title:            "Mes chaînes modérées",
+		CurrentUser:      u,
+		Channels:         channels,
+		CaptureEnqueued:  r.URL.Query().Get("capture_enqueued") == "1",
+		SessionPurged:    r.URL.Query().Get("purged") == "1",
+		HasActiveSession: hasActiveSession,
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "channels.html", data); err != nil {
@@ -762,6 +890,46 @@ func (a *App) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/channels?capture_enqueued=1", http.StatusFound)
 }
 
+func (a *App) handleSaveSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+
+	// Récupérer la session active
+	var sessionID int64
+	err := a.db.QueryRowContext(r.Context(),
+		`SELECT id FROM sessions WHERE user_id = ? AND status = 'active' LIMIT 1`,
+		u.ID,
+	).Scan(&sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Redirect(w, r, "/analysis?save_no_session=1", http.StatusFound)
+			return
+		}
+		log.Printf("query session error: %v", err)
+		http.Error(w, "failed to query session", http.StatusInternalServerError)
+		return
+	}
+
+	// Marquer comme 'saved'
+	_, err = a.db.ExecContext(r.Context(), `UPDATE sessions SET status = 'saved', updated_at = NOW(6) WHERE id = ?`, sessionID)
+	if err != nil {
+		log.Printf("update session error: %v", err)
+		http.Error(w, "failed to save session", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("session %d saved by user %d", sessionID, u.ID)
+	http.Redirect(w, r, "/sessions?saved=1", http.StatusFound)
+}
+
 func (a *App) handlePurgeSession(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -825,6 +993,140 @@ WHERE c.session_id = ?
 	http.Redirect(w, r, "/channels?purged=1", http.StatusFound)
 }
 
+func (a *App) handleDeleteSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "invalid form", http.StatusBadRequest)
+		return
+	}
+
+	sessionUUID := r.Form.Get("session_uuid")
+	if sessionUUID == "" {
+		http.Error(w, "missing session_uuid", http.StatusBadRequest)
+		return
+	}
+
+	// Récupérer l'ID de la session
+	var sessionID int64
+	err := a.db.QueryRowContext(r.Context(),
+		`SELECT id FROM sessions WHERE user_id = ? AND session_uuid = ? AND status = 'saved' LIMIT 1`,
+		u.ID, sessionUUID,
+	).Scan(&sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Redirect(w, r, "/sessions?delete_not_found=1", http.StatusFound)
+			return
+		}
+		log.Printf("query session error: %v", err)
+		http.Error(w, "failed to query session", http.StatusInternalServerError)
+		return
+	}
+
+	// Suppression en cascade
+	_, err = a.db.ExecContext(r.Context(), `
+DELETE cc FROM capture_chatters cc
+JOIN captures c ON cc.capture_id = c.id
+WHERE c.session_id = ?
+`, sessionID)
+	if err != nil {
+		log.Printf("delete capture_chatters error: %v", err)
+		http.Error(w, "failed to delete session", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.db.ExecContext(r.Context(), `DELETE FROM captures WHERE session_id = ?`, sessionID)
+	if err != nil {
+		log.Printf("delete captures error: %v", err)
+		http.Error(w, "failed to delete session", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = a.db.ExecContext(r.Context(), `DELETE FROM sessions WHERE id = ?`, sessionID)
+	if err != nil {
+		log.Printf("delete session error: %v", err)
+		http.Error(w, "failed to delete session", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("saved session %d deleted by user %d", sessionID, u.ID)
+	http.Redirect(w, r, "/sessions?deleted=1", http.StatusFound)
+}
+
+func (a *App) handleSessions(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+
+	// Récupérer toutes les sessions saved
+	rows, err := a.db.QueryContext(r.Context(),
+		`SELECT id, session_uuid, status, created_at, updated_at 
+         FROM sessions 
+         WHERE user_id = ? AND status = 'saved' 
+         ORDER BY updated_at DESC`,
+		u.ID,
+	)
+	if err != nil {
+		log.Printf("query sessions error: %v", err)
+		http.Error(w, "failed to load sessions", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var sessions []SavedSession
+	for rows.Next() {
+		var s SavedSession
+		if err := rows.Scan(&s.ID, &s.SessionUUID, &s.Status, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			log.Printf("scan session error: %v", err)
+			continue
+		}
+		sessions = append(sessions, s)
+	}
+
+	// Vérifier s'il y a une session active
+	hasActiveSession := false
+	var count int
+	err = a.db.QueryRowContext(r.Context(),
+		`SELECT COUNT(*) FROM sessions WHERE user_id = ? AND status = 'active'`,
+		u.ID,
+	).Scan(&count)
+	if err == nil && count > 0 {
+		hasActiveSession = true
+	}
+
+	data := struct {
+		Title            string
+		CurrentUser      *CurrentUser
+		Sessions         []SavedSession
+		Saved            bool
+		Deleted          bool
+		HasActiveSession bool
+	}{
+		Title:            "Mes sessions sauvegardées",
+		CurrentUser:      u,
+		Sessions:         sessions,
+		Saved:            r.URL.Query().Get("saved") == "1",
+		Deleted:          r.URL.Query().Get("deleted") == "1",
+		HasActiveSession: hasActiveSession,
+	}
+
+	if err := a.templates.ExecuteTemplate(w, "sessions.html", data); err != nil {
+		log.Printf("template error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
+}
+
 func (a *App) getActiveSessionUUID(ctx context.Context, userID int64) (string, error) {
 	var sessionUUID string
 	err := a.db.QueryRowContext(ctx,
@@ -863,19 +1165,19 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Title        string
-		CurrentUser  *CurrentUser
-		SessionUUID  string
-		Summary      *AnalysisSummary
+		Title         string
+		CurrentUser   *CurrentUser
+		SessionUUID   string
+		Summary       *AnalysisSummary
 		BroadcasterID string
-		Purged       bool
+		Purged        bool
 	}{
-		Title:        "Analyse de session",
-		CurrentUser:  u,
-		SessionUUID:  sessionUUID,
-		Summary:      summary,
+		Title:         "Analyse de session",
+		CurrentUser:   u,
+		SessionUUID:   sessionUUID,
+		Summary:       summary,
 		BroadcasterID: broadcasterID,
-		Purged:       r.URL.Query().Get("purged") == "1",
+		Purged:        r.URL.Query().Get("purged") == "1",
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
