@@ -5,6 +5,68 @@
 {{ define "title" }}{{ .Title }}{{ end }}
 
 {{ define "content" }}
+<h2>Bienvenue sur Twitch Chatters Analyser</h2>
 
+{{ if .CurrentUser }}
+    <div class="info">
+        <p>Vous êtes connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong>.</p>
+    </div>
+    
+    <h3>🚀 Démarrage rapide</h3>
+    <p>Pour analyser les chatters d'une chaîne Twitch :</p>
+    <ol style="color: #adadb8; margin-left: 2rem; margin-bottom: 1.5rem;">
+        <li>Consultez vos <a href="/channels">chaînes modérées</a></li>
+        <li>Cliquez sur "Capturer les chatters" pour la chaîne de votre choix</li>
+        <li>Attendez que le worker traite la capture (quelques secondes à minutes)</li>
+        <li>Consultez l'<a href="/analysis">analyse de session</a> pour voir les résultats</li>
+    </ol>
+    
+    <h3>📊 Fonctionnalités</h3>
+    <ul style="color: #adadb8; margin-left: 2rem; margin-bottom: 1.5rem;">
+        <li><strong>Capture en temps réel</strong> des chatters présents sur une chaîne</li>
+        <li><strong>Analyse des dates de création</strong> de comptes pour détecter des vagues de bots</li>
+        <li><strong>Top 10 des jours</strong> avec le plus de comptes créés</li>
+        <li><strong>Sessions d'analyse</strong> pour comparer plusieurs captures</li>
+        <li><strong>Historique des renommages</strong> pour identifier les comptes suspects</li>
+    </ul>
+    
+    <h3>🔍 Que chercher ?</h3>
+    <p>Les viewer bots ont souvent ces caractéristiques :</p>
+    <ul style="color: #adadb8; margin-left: 2rem;">
+        <li>Nombreux comptes créés sur un ou quelques jours seulement</li>
+        <li>Pics anormaux de création de comptes (100+ comptes le même jour)</li>
+        <li>Comptes récents (créés dans les dernières semaines/mois)</li>
+        <li>Changements fréquents de pseudonyme</li>
+    </ul>
+    
+{{ else }}
+    <div class="info">
+        <p>👋 Bienvenue ! Cette application aide les modérateurs Twitch à détecter les <strong>viewer bots</strong>.</p>
+    </div>
+    
+    <h3>🎯 Objectif</h3>
+    <p>Analysez les comptes présents dans un chat Twitch pour identifier les vagues de bots en observant :</p>
+    <ul style="color: #adadb8; margin-left: 2rem; margin-bottom: 1.5rem;">
+        <li>Les dates de création des comptes</li>
+        <li>Les concentrations anormales de comptes créés sur quelques jours</li>
+        <li>Les comptes qui changent souvent de pseudo</li>
+    </ul>
+    
+    <h3>✅ Prérequis</h3>
+    <p>Pour utiliser cette application, vous devez :</p>
+    <ul style="color: #adadb8; margin-left: 2rem; margin-bottom: 1.5rem;">
+        <li>Être <strong>modérateur</strong> sur au moins une chaîne Twitch</li>
+        <li>Vous connecter avec votre compte Twitch</li>
+        <li>Autoriser l'accès aux scopes : <code style="background-color: #1f1f23; padding: 0.2rem 0.4rem; border-radius: 3px;">user:read:moderated_channels</code> et <code style="background-color: #1f1f23; padding: 0.2rem 0.4rem; border-radius: 3px;">moderator:read:chatters</code></li>
+    </ul>
+    
+    <div style="text-align: center; margin: 2rem 0;">
+        <a href="/auth/login" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 1rem 2rem; border-radius: 4px; text-decoration: none; font-weight: 600; font-size: 1.1rem;">
+            🔑 Se connecter avec Twitch
+        </a>
+    </div>
+{{ end }}
 
+<h3>🛠️ Technologies</h3>
+<p style="color: #adadb8;">Ce projet est construit avec Go, MySQL, Docker et utilise l'API Twitch Helix.</p>
 {{ end }}
