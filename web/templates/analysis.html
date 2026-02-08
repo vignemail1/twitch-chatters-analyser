@@ -21,38 +21,133 @@
     </div>
 </header>
 <main>
-<h2>Analyse de la session</h2>
+<h2>📊 Analyse de la session</h2>
 
-<p>Session UUID : {{ .SessionUUID }}</p>
+<div class="info" style="margin-bottom: 2rem;">
+    <p><strong>Session UUID :</strong> <code style="background-color: #0e0e10; padding: 0.2rem 0.4rem; border-radius: 3px;">{{ .SessionUUID }}</code></p>
+    {{ if .BroadcasterID }}
+    <p><strong>Filtré pour :</strong> Broadcaster ID {{ .BroadcasterID }}</p>
+    {{ end }}
+</div>
+
 {{ if .Summary }}
-<p>Nombre total de comptes distincts : {{ .Summary.TotalAccounts }}</p>
-<p>Données générées le : {{ .Summary.GeneratedAt }}</p>
+    <div style="background-color: #18181b; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #9147ff;">
+        <h3 style="margin-top: 0; color: #9147ff;">📊 Résumé global</h3>
+        <p style="font-size: 1.2rem; margin: 0.5rem 0;"><strong>{{ .Summary.TotalAccounts }}</strong> comptes distincts capturés</p>
+        <p style="color: #adadb8; font-size: 0.9rem; margin: 0.5rem 0;">Données générées le {{ .Summary.GeneratedAt.Format "02/01/2006 à 15:04" }}</p>
+    </div>
 
-<h3>Top 10 des jours de création de comptes</h3>
+    <h3>📅 Top 10 des jours de création de comptes</h3>
 
-{{ if not .Summary.TopDays }}
-    <p>Aucune donnée disponible (pas de chatters capturés ou pas encore enrichis).</p>
-{{ else }}
-    <table>
-        <thead>
-        <tr>
-            <th>Date</th>
-            <th>Nombre de comptes</th>
-        </tr>
-        </thead>
-        <tbody>
+    {{ if not .Summary.TopDays }}
+        <div class="info">
+            <p>Aucune donnée disponible.</p>
+            <p>Les comptes capturés n'ont pas encore été enrichis par le worker, ou aucun compte n'a de date de création connue.</p>
+        </div>
+    {{ else }}
+        <!-- Analyse automatique des patterns -->
+        {{ $maxCount := 0 }}
+        {{ $totalInTop10 := 0 }}
         {{ range .Summary.TopDays }}
-            <tr>
-                <td>{{ .Date }}</td>
-                <td>{{ .Count }}</td>
-            </tr>
+            {{ if gt .Count $maxCount }}{{ $maxCount = .Count }}{{ end }}
+            {{ $totalInTop10 = add $totalInTop10 .Count }}
         {{ end }}
-        </tbody>
-    </table>
-{{ end }}
+        
+        {{ $percentInTop10 := 0 }}
+        {{ if gt .Summary.TotalAccounts 0 }}
+            {{ $percentInTop10 = div (mul $totalInTop10 100) .Summary.TotalAccounts }}
+        {{ end }}
+
+        <!-- Alertes selon les seuils -->
+        {{ if ge $maxCount 100 }}
+        <div class="error" style="margin-bottom: 1.5rem;">
+            <p><strong>⚠️ ALERTE CRITIQUE</strong></p>
+            <p>Un pic de <strong>{{ $maxCount }} comptes</strong> créés le même jour a été détecté.</p>
+            <p>Ceci est <strong>extrêmement suspect</strong> et indique très probablement une vague de bots.</p>
+        </div>
+        {{ else if ge $maxCount 50 }}
+        <div class="error" style="margin-bottom: 1.5rem; background-color: #78350f; border-left-color: #f59e0b;">
+            <p><strong>⚠️ ALERTE</strong></p>
+            <p>Un pic de <strong>{{ $maxCount }} comptes</strong> créés le même jour a été détecté.</p>
+            <p>Ceci est <strong>suspect</strong> et pourrait indiquer des bots.</p>
+        </div>
+        {{ else if ge $maxCount 30 }}
+        <div class="info" style="margin-bottom: 1.5rem; background-color: #1e3a8a;">
+            <p><strong>🔍 ATTENTION</strong></p>
+            <p>Un pic de <strong>{{ $maxCount }} comptes</strong> créés le même jour a été détecté.</p>
+            <p>Surveiller ce comportement, cela pourrait être suspect selon le contexte.</p>
+        </div>
+        {{ end }}
+
+        {{ if ge $percentInTop10 40 }}
+        <div class="info" style="margin-bottom: 1.5rem;">
+            <p><strong>📊 Concentration élevée</strong></p>
+            <p><strong>{{ $percentInTop10 }}%</strong> des comptes ({{ $totalInTop10 }}/{{ .Summary.TotalAccounts }}) ont été créés sur seulement 10 jours.</p>
+            <p>Une forte concentration peut indiquer des bots si les dates sont récentes.</p>
+        </div>
+        {{ end }}
+
+        <table>
+            <thead>
+            <tr>
+                <th>Date de création</th>
+                <th>Nombre de comptes</th>
+                <th>% du total</th>
+                <th>Indicateur</th>
+            </tr>
+            </thead>
+            <tbody>
+            {{ range .Summary.TopDays }}
+                {{ $percent := 0 }}
+                {{ if gt $.Summary.TotalAccounts 0 }}
+                    {{ $percent = div (mul .Count 100) $.Summary.TotalAccounts }}
+                {{ end }}
+                <tr>
+                    <td><strong>{{ .Date }}</strong></td>
+                    <td>{{ .Count }}</td>
+                    <td>{{ $percent }}%</td>
+                    <td>
+                        {{ if ge .Count 100 }}
+                            <span style="color: #ef4444; font-weight: 600;">❌ CRITIQUE</span>
+                        {{ else if ge .Count 50 }}
+                            <span style="color: #f59e0b; font-weight: 600;">⚠️ SUSPECT</span>
+                        {{ else if ge .Count 30 }}
+                            <span style="color: #3b82f6;">🔍 À surveiller</span>
+                        {{ else }}
+                            <span style="color: #10b981;">✅ Normal</span>
+                        {{ end }}
+                    </td>
+                </tr>
+            {{ end }}
+            </tbody>
+        </table>
+
+        <div style="margin-top: 2rem; padding: 1rem; background-color: #18181b; border-radius: 4px;">
+            <h4 style="margin-top: 0; color: #efeff1;">📖 Guide d'interprétation</h4>
+            <ul style="color: #adadb8; margin-left: 1.5rem; line-height: 1.8;">
+                <li><span style="color: #ef4444; font-weight: 600;">❌ CRITIQUE (100+)</span> : Vague de bots presque certaine</li>
+                <li><span style="color: #f59e0b; font-weight: 600;">⚠️ SUSPECT (50-99)</span> : Très probablement des bots</li>
+                <li><span style="color: #3b82f6;">🔍 À surveiller (30-49)</span> : Potentiellement suspect selon contexte</li>
+                <li><span style="color: #10b981;">✅ Normal (< 30)</span> : Distribution attendue</li>
+            </ul>
+            <p style="color: #adadb8; margin-top: 1rem; font-size: 0.9rem;">
+                <strong>Note :</strong> Ces seuils sont indicatifs. Vérifiez toujours le contexte (raids, événements spéciaux, etc.).
+            </p>
+        </div>
+    {{ end }}
 {{ else }}
-    <p>Aucun résumé disponible pour cette session.</p>
+    <div class="info">
+        <p><strong>Aucun résumé disponible pour cette session.</strong></p>
+        <p>Assurez-vous d'avoir capturé des chatters depuis la page <a href="/channels">/channels</a>.</p>
+        <p>Le worker peut prendre quelques minutes pour enrichir les données des comptes.</p>
+    </div>
 {{ end }}
+
+<div style="margin-top: 2rem; text-align: center;">
+    <a href="/channels" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+        ← Retour aux chaînes
+    </a>
+</div>
 </main>
 </body>
 </html>
