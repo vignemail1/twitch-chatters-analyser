@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     INDEX idx_jobs_status_created (status, created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Comptes Twitch (enrichis par le worker)
 CREATE TABLE IF NOT EXISTS twitch_users (
     id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     twitch_user_id VARCHAR(64) NOT NULL UNIQUE,
@@ -96,5 +97,32 @@ CREATE TABLE IF NOT EXISTS twitch_users (
     view_count INT NULL,
     last_fetched_at DATETIME(6) NOT NULL,
     PRIMARY KEY (id),
-    INDEX idx_twitch_users_login (login)
+    INDEX idx_twitch_users_login (login),
+    INDEX idx_twitch_users_created_at (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Historique des changements de noms (login/display_name)
+CREATE TABLE IF NOT EXISTS twitch_user_names (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    twitch_user_id VARCHAR(64) NOT NULL,
+    login VARCHAR(128) NOT NULL,
+    display_name VARCHAR(128) NOT NULL,
+    detected_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_twitch_user_names_user (twitch_user_id),
+    INDEX idx_twitch_user_names_detected (detected_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Table d'audit pour la traçabilité
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    event_type VARCHAR(64) NOT NULL,
+    user_id BIGINT UNSIGNED NULL,
+    session_id BIGINT UNSIGNED NULL,
+    details JSON NULL,
+    created_at DATETIME(6) NOT NULL,
+    PRIMARY KEY (id),
+    INDEX idx_audit_logs_event_type (event_type),
+    INDEX idx_audit_logs_user (user_id),
+    INDEX idx_audit_logs_created (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
