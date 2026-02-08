@@ -8,3 +8,11 @@ docker compose down db
 docker compose rm db
 docker volume rm twitch-chatters-analyser_db_data
 """
+
+[tasks.pull_build]
+
+run = """
+git pull
+go mod tidy
+docker compose build
+"""
