@@ -5,6 +5,10 @@
 {{ define "title" }}{{ .Title }}{{ end }}
 
 {{ define "content" }}
+{{ template "channels_content" . }}
+{{ end }}
+
+{{ define "channels_content" }}
 <h2>Mes chaînes modérées</h2>
 
 {{ if .CaptureEnqueued }}

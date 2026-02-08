@@ -5,6 +5,10 @@
 {{ define "title" }}{{ .Title }}{{ end }}
 
 {{ define "content" }}
+{{ template "analysis_content" . }}
+{{ end }}
+
+{{ define "analysis_content" }}
 <h2>Analyse de la session</h2>
 
 <p>Session UUID : {{ .SessionUUID }}</p>
