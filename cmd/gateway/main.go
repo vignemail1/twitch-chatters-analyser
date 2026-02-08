@@ -581,11 +581,13 @@ func (a *App) handleChannels(w http.ResponseWriter, r *http.Request) {
 			BroadcasterName  string
 		}
 		CaptureEnqueued bool
+		SessionPurged   bool
 	}{
 		Title:           "Mes chaînes modérées",
 		CurrentUser:     u,
 		Channels:        channels,
 		CaptureEnqueued: r.URL.Query().Get("capture_enqueued") == "1",
+		SessionPurged:   r.URL.Query().Get("purged") == "1",
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "channels.html", data); err != nil {
@@ -780,7 +782,8 @@ func (a *App) handlePurgeSession(w http.ResponseWriter, r *http.Request) {
 	).Scan(&sessionID)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			http.Redirect(w, r, "/analysis?purge_no_session=1", http.StatusFound)
+			// Pas de session active, rediriger vers /channels avec message
+			http.Redirect(w, r, "/channels?purge_no_session=1", http.StatusFound)
 			return
 		}
 		log.Printf("query session error: %v", err)
@@ -818,7 +821,8 @@ WHERE c.session_id = ?
 	}
 
 	log.Printf("session %d purged by user %d", sessionID, u.ID)
-	http.Redirect(w, r, "/analysis?purged=1", http.StatusFound)
+	// Rediriger vers /channels avec message de succès au lieu de /analysis
+	http.Redirect(w, r, "/channels?purged=1", http.StatusFound)
 }
 
 func (a *App) getActiveSessionUUID(ctx context.Context, userID int64) (string, error) {
