@@ -19,15 +19,22 @@ type App struct {
 }
 
 type SessionSummary struct {
-	SessionUUID   string    `json:"session_uuid"`
-	TotalAccounts int64     `json:"total_accounts"`
-	TopDays       []TopDay  `json:"top_days"`
-	GeneratedAt   time.Time `json:"generated_at"`
+	SessionUUID   string        `json:"session_uuid"`
+	TotalAccounts int64         `json:"total_accounts"`
+	TopDays       []TopDay      `json:"top_days"`
+	Broadcasters  []Broadcaster `json:"broadcasters"`
+	GeneratedAt   time.Time     `json:"generated_at"`
 }
 
 type TopDay struct {
 	Date  string `json:"date"` // YYYY-MM-DD
 	Count int64  `json:"count"`
+}
+
+type Broadcaster struct {
+	BroadcasterID    string `json:"broadcaster_id"`
+	BroadcasterLogin string `json:"broadcaster_login"`
+	CaptureCount     int64  `json:"capture_count"`
 }
 
 func main() {
@@ -102,10 +109,10 @@ func (a *App) handleSessionSummary(w http.ResponseWriter, r *http.Request) {
 	}
 	sessionUUID := parts[0]
 
-	// Optionnel : filtre broadcaster_id
-	broadcasterID := r.URL.Query().Get("broadcaster_id")
+	// Optionnel : filtre broadcaster_id (peut être une liste séparée par des virgules)
+	broadcasterIDs := r.URL.Query().Get("broadcaster_id")
 
-	summary, err := a.buildSessionSummary(r.Context(), sessionUUID, broadcasterID)
+	summary, err := a.buildSessionSummary(r.Context(), sessionUUID, broadcasterIDs)
 	if err != nil {
 		log.Printf("buildSessionSummary error: %v", err)
 		http.Error(w, "failed to build summary", http.StatusInternalServerError)
@@ -120,7 +127,7 @@ func (a *App) handleSessionSummary(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (a *App) buildSessionSummary(ctx context.Context, sessionUUID, broadcasterID string) (*SessionSummary, error) {
+func (a *App) buildSessionSummary(ctx context.Context, sessionUUID, broadcasterIDs string) (*SessionSummary, error) {
 	// Récupérer l'id interne de la session
 	var sessionID int64
 	err := a.db.QueryRowContext(ctx,
@@ -131,9 +138,21 @@ func (a *App) buildSessionSummary(ctx context.Context, sessionUUID, broadcasterI
 		return nil, err
 	}
 
-	// Nombre total de comptes distincts pour cette session (et broadcaster si filtré)
+	// Récupérer la liste des broadcasters pour cette session
+	broadcasters, err := a.getBroadcasters(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parser les broadcaster_ids filtrés (peut être vide ou une liste séparée par des virgules)
+	var filterBroadcasters []string
+	if broadcasterIDs != "" {
+		filterBroadcasters = strings.Split(broadcasterIDs, ",")
+	}
+
+	// Nombre total de comptes distincts pour cette session (et broadcasters filtrés si spécifié)
 	var total int64
-	if broadcasterID == "" {
+	if len(filterBroadcasters) == 0 {
 		err = a.db.QueryRowContext(ctx, `
 SELECT COUNT(DISTINCT cc.twitch_user_id)
 FROM capture_chatters cc
@@ -141,20 +160,27 @@ JOIN captures c ON cc.capture_id = c.id
 WHERE c.session_id = ?
 `, sessionID).Scan(&total)
 	} else {
-		err = a.db.QueryRowContext(ctx, `
+		// Construction dynamique de la requête avec IN clause
+		query := `
 SELECT COUNT(DISTINCT cc.twitch_user_id)
 FROM capture_chatters cc
 JOIN captures c ON cc.capture_id = c.id
-WHERE c.session_id = ? AND c.broadcaster_id = ?
-`, sessionID, broadcasterID).Scan(&total)
+WHERE c.session_id = ? AND c.broadcaster_id IN (?` + strings.Repeat(",?", len(filterBroadcasters)-1) + `)
+`
+		args := make([]interface{}, 0, len(filterBroadcasters)+1)
+		args = append(args, sessionID)
+		for _, bid := range filterBroadcasters {
+			args = append(args, strings.TrimSpace(bid))
+		}
+		err = a.db.QueryRowContext(ctx, query, args...).Scan(&total)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Top 10 des jours de création - FIX: utiliser COUNT(DISTINCT) pour éviter les doublons
+	// Top 10 des jours de création
 	var rows *sql.Rows
-	if broadcasterID == "" {
+	if len(filterBroadcasters) == 0 {
 		rows, err = a.db.QueryContext(ctx, `
 SELECT DATE(tu.created_at) AS d, COUNT(DISTINCT cc.twitch_user_id) AS cnt
 FROM capture_chatters cc
@@ -166,16 +192,22 @@ ORDER BY cnt DESC
 LIMIT 10
 `, sessionID)
 	} else {
-		rows, err = a.db.QueryContext(ctx, `
+		query := `
 SELECT DATE(tu.created_at) AS d, COUNT(DISTINCT cc.twitch_user_id) AS cnt
 FROM capture_chatters cc
 JOIN captures c ON cc.capture_id = c.id
 JOIN twitch_users tu ON tu.twitch_user_id = cc.twitch_user_id
-WHERE c.session_id = ? AND c.broadcaster_id = ? AND tu.created_at IS NOT NULL
+WHERE c.session_id = ? AND c.broadcaster_id IN (?` + strings.Repeat(",?", len(filterBroadcasters)-1) + `) AND tu.created_at IS NOT NULL
 GROUP BY d
 ORDER BY cnt DESC
 LIMIT 10
-`, sessionID, broadcasterID)
+`
+		args := make([]interface{}, 0, len(filterBroadcasters)+1)
+		args = append(args, sessionID)
+		for _, bid := range filterBroadcasters {
+			args = append(args, strings.TrimSpace(bid))
+		}
+		rows, err = a.db.QueryContext(ctx, query, args...)
 	}
 	if err != nil {
 		return nil, err
@@ -202,8 +234,37 @@ LIMIT 10
 		SessionUUID:   sessionUUID,
 		TotalAccounts: total,
 		TopDays:       topDays,
+		Broadcasters:  broadcasters,
 		GeneratedAt:   time.Now().UTC(),
 	}, nil
+}
+
+func (a *App) getBroadcasters(ctx context.Context, sessionID int64) ([]Broadcaster, error) {
+	rows, err := a.db.QueryContext(ctx, `
+SELECT 
+    c.broadcaster_id,
+    c.broadcaster_login,
+    COUNT(DISTINCT c.id) as capture_count
+FROM captures c
+WHERE c.session_id = ?
+GROUP BY c.broadcaster_id, c.broadcaster_login
+ORDER BY capture_count DESC, c.broadcaster_login ASC
+`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var broadcasters []Broadcaster
+	for rows.Next() {
+		var b Broadcaster
+		if err := rows.Scan(&b.BroadcasterID, &b.BroadcasterLogin, &b.CaptureCount); err != nil {
+			return nil, err
+		}
+		broadcasters = append(broadcasters, b)
+	}
+
+	return broadcasters, rows.Err()
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
