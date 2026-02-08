@@ -108,7 +108,7 @@ func processOneJob(db *sql.DB) error {
 		_ = tx.Rollback()
 	}()
 
-	// MySQL 8+: FOR UPDATE SKIP LOCKED pour éviter les conflits entre workers[web:130][web:132][web:134][web:140]
+	// MySQL 8+: FOR UPDATE SKIP LOCKED pour éviter les conflits entre workers
 	row := tx.QueryRowContext(ctx, `
 SELECT id, type, payload
 FROM jobs
@@ -244,7 +244,7 @@ func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderator
 
 	allIDs := make([]string, 0, 1024)
 	cursor := ""
-	const pageSize = 1000 // max per page[web:4][web:1]
+	const pageSize = 1000 // max per page
 
 	for {
 		params := url.Values{}
@@ -270,7 +270,7 @@ func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderator
 			defer resp.Body.Close()
 
 			if resp.StatusCode == http.StatusTooManyRequests {
-				// rate limit atteint : simple backoff (améliorable plus tard)[web:21][web:145]
+				// rate limit atteint : simple backoff (améliorable plus tard)
 				log.Printf("rate limited on getChatters, sleeping 10s")
 				time.Sleep(10 * time.Second)
 				return
@@ -300,7 +300,7 @@ func fetchAllChatters(ctx context.Context, accessToken, broadcasterID, moderator
 			break
 		}
 
-		// léger sleep pour éviter de spammer l'API[web:16][web:145]
+		// léger sleep pour éviter de spammer l'API
 		time.Sleep(300 * time.Millisecond)
 	}
 
@@ -430,7 +430,7 @@ func fetchUsersInfoFromTwitch(ctx context.Context, accessToken string, userIDs [
 		return nil, fmt.Errorf("TWITCH_CLIENT_ID not set in worker env")
 	}
 
-	const batchSize = 100 // max IDs par requête[web:1][web:157]
+	const batchSize = 100 // max IDs par requête
 	all := make([]helixUser, 0, len(userIDs))
 
 	for start := 0; start < len(userIDs); start += batchSize {
@@ -518,10 +518,31 @@ ON DUPLICATE KEY UPDATE
 	}
 	defer stmt.Close()
 
+	// Track name changes
 	for _, u := range users {
+		// Check if name changed
+		var oldLogin, oldDisplayName sql.NullString
+		err := tx.QueryRowContext(ctx,
+			`SELECT login, display_name FROM twitch_users WHERE twitch_user_id = ?`,
+			u.ID,
+		).Scan(&oldLogin, &oldDisplayName)
+		
+		if err == nil && oldLogin.Valid {
+			// User exists, check for changes
+			if oldLogin.String != u.Login || oldDisplayName.String != u.DisplayName {
+				// Name changed, log it
+				_, _ = tx.ExecContext(ctx, `
+INSERT INTO twitch_user_names (twitch_user_id, login, display_name, detected_at)
+VALUES (?, ?, ?, NOW(6))
+`, u.ID, u.Login, u.DisplayName)
+				log.Printf("[NAME_CHANGE] user_id=%s old_login=%s new_login=%s old_display=%s new_display=%s",
+					u.ID, oldLogin.String, u.Login, oldDisplayName.String, u.DisplayName)
+			}
+		}
+
 		var createdAt *time.Time
 		if u.CreatedAt != "" {
-			// created_at est renvoyé en ISO 8601, qu'on peut parser en time.Time[web:157][web:158]
+			// created_at est renvoyé en ISO 8601, qu'on peut parser en time.Time
 			t, err := time.Parse(time.RFC3339, u.CreatedAt)
 			if err == nil {
 				createdAt = &t
