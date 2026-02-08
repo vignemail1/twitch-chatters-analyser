@@ -46,14 +46,14 @@
         </div>
     {{ else }}
         <!-- Analyse automatique des patterns -->
-        {{ $maxCount := 0 }}
-        {{ $totalInTop10 := 0 }}
+        {{ $maxCount := int64 0 }}
+        {{ $totalInTop10 := int64 0 }}
         {{ range .Summary.TopDays }}
             {{ if gt .Count $maxCount }}{{ $maxCount = .Count }}{{ end }}
             {{ $totalInTop10 = add $totalInTop10 .Count }}
         {{ end }}
         
-        {{ $percentInTop10 := 0 }}
+        {{ $percentInTop10 := int64 0 }}
         {{ if gt .Summary.TotalAccounts 0 }}
             {{ $percentInTop10 = div (mul $totalInTop10 100) .Summary.TotalAccounts }}
         {{ end }}
@@ -98,7 +98,7 @@
             </thead>
             <tbody>
             {{ range .Summary.TopDays }}
-                {{ $percent := 0 }}
+                {{ $percent := int64 0 }}
                 {{ if gt $.Summary.TotalAccounts 0 }}
                     {{ $percent = div (mul .Count 100) $.Summary.TotalAccounts }}
                 {{ end }}
