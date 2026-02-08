@@ -13,8 +13,8 @@
     <div class="user-info">
         {{ if .CurrentUser }}
             Connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong> ({{ .CurrentUser.Login }})
-            <p><a href="/channels">Voir mes chaînes modérées</a></p>
-            <p><a href="/analysis">Voir l'analyse de la session</a></p>
+            <p><a href="/">Accueil</a> | <a href="/channels">Mes chaînes</a> | <a href="/sessions">Sessions sauvegardées</a></p>
+            <p><a href="/auth/logout" style="color: #ef4444;">Se déconnecter</a></p>
         {{ else }}
             <a href="/auth/login">Se connecter avec Twitch</a>
         {{ end }}
@@ -115,11 +115,25 @@
         ← Retour aux chaînes
     </a>
     
+    <form method="POST" action="/sessions/save" style="display: inline-block;">
+        <button type="submit" style="background-color: #15803d; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 1rem;">
+            💾 Sauvegarder la session
+        </button>
+    </form>
+    
     <form method="POST" action="/sessions/purge" style="display: inline-block;" onsubmit="return confirm('Voulez-vous vraiment supprimer TOUTES les captures de cette session ? Cette action est irréversible.')">
         <button type="submit" style="background-color: #991b1b; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 1rem;">
             🗑️ Purger la session
         </button>
     </form>
+</div>
+
+<div style="margin-top: 2rem; padding: 1rem; background-color: #18181b; border-radius: 4px;">
+    <h4 style="margin-top: 0; color: #efeff1;">💡 Astuce</h4>
+    <p style="color: #adadb8; margin: 0;">
+        <strong>Sauvegarder</strong> conserve cette session pour consultation ultérieure. 
+        <strong>Purger</strong> supprime définitivement toutes les captures de cette session active.
+    </p>
 </div>
 </main>
 </body>
