@@ -1,18 +1,39 @@
 {{ define "channels.html" }}
-{{ template "base.html" . }}
-{{ end }}
-
-{{ define "title" }}{{ .Title }}{{ end }}
-
-{{ define "content" }}
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <title>{{ .Title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="/static/css/main.css" rel="stylesheet" />
+</head>
+<body class="dark">
+<header>
+    <h1>Twitch Chatters Analyser</h1>
+    <div class="user-info">
+        {{ if .CurrentUser }}
+            Connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong> ({{ .CurrentUser.Login }})
+            <p><a href="/channels">Voir mes chaînes modérées</a></p>
+            <p><a href="/analysis">Voir l'analyse de la session</a></p>
+        {{ else }}
+            <a href="/auth/login">Se connecter avec Twitch</a>
+        {{ end }}
+    </div>
+</header>
+<main>
 <h2>Mes chaînes modérées</h2>
 
 {{ if .CaptureEnqueued }}
-    <p style="color: lime;">Une capture a été planifiée. Elle sera traitée par le worker.</p>
+    <div class="success">
+        <p>✅ Une capture a été planifiée. Elle sera traitée par le worker dans quelques instants.</p>
+    </div>
 {{ end }}
 
 {{ if not .Channels }}
-    <p>Aucune chaîne modérée trouvée (ou l'accès user:read:moderated_channels est manquant).</p>
+    <div class="info">
+        <p>Aucune chaîne modérée trouvée.</p>
+        <p>Vérifiez que vous êtes bien modérateur sur au moins une chaîne et que le scope <code style="background-color: #1f1f23; padding: 0.2rem 0.4rem; border-radius: 3px;">user:read:moderated_channels</code> est autorisé.</p>
+    </div>
 {{ else }}
     <table>
         <thead>
@@ -27,10 +48,9 @@
         {{ range .Channels }}
             <tr>
                 <td>{{ .BroadcasterID }}</td>
-                <td>{{ .BroadcasterLogin }}</td>
+                <td><a href="https://twitch.tv/{{ .BroadcasterLogin }}" target="_blank">{{ .BroadcasterLogin }}</a></td>
                 <td>{{ .BroadcasterName }}</td>
                 <td>
-                    <!-- bouton de capture qui pointera plus tard vers l'endpoint de création de job -->
                     <form method="post" action="/sessions/capture">
                         <input type="hidden" name="broadcaster_id" value="{{ .BroadcasterID }}">
                         <input type="hidden" name="broadcaster_login" value="{{ .BroadcasterLogin }}">
@@ -42,4 +62,7 @@
         </tbody>
     </table>
 {{ end }}
+</main>
+</body>
+</html>
 {{ end }}
