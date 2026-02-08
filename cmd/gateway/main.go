@@ -162,6 +162,7 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analysis", app.handleAnalysis)
+	mux.HandleFunc("/analysis/saved/", app.handleSavedAnalysis)
 	mux.HandleFunc("/sessions", app.handleSessions)
 	mux.HandleFunc("/sessions/capture", app.handleCreateCapture)
 	mux.HandleFunc("/sessions/save", app.handleSaveSession)
@@ -1171,6 +1172,7 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		Summary       *AnalysisSummary
 		BroadcasterID string
 		Purged        bool
+		IsSaved       bool
 	}{
 		Title:         "Analyse de session",
 		CurrentUser:   u,
@@ -1178,6 +1180,7 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		Summary:       summary,
 		BroadcasterID: broadcasterID,
 		Purged:        r.URL.Query().Get("purged") == "1",
+		IsSaved:       false,
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
@@ -1185,6 +1188,72 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
 
+}
+
+func (a *App) handleSavedAnalysis(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+
+	// Extraire le session UUID depuis l'URL : /analysis/saved/{uuid}
+	path := strings.TrimPrefix(r.URL.Path, "/analysis/saved/")
+	sessionUUID := strings.TrimSuffix(path, "/")
+
+	if sessionUUID == "" {
+		http.Error(w, "missing session UUID", http.StatusBadRequest)
+		return
+	}
+
+	// Vérifier que la session existe et appartient à l'utilisateur
+	var status string
+	err := a.db.QueryRowContext(r.Context(),
+		`SELECT status FROM sessions WHERE user_id = ? AND session_uuid = ? AND status = 'saved' LIMIT 1`,
+		u.ID, sessionUUID,
+	).Scan(&status)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "session not found or not saved", http.StatusNotFound)
+			return
+		}
+		log.Printf("query session error: %v", err)
+		http.Error(w, "failed to query session", http.StatusInternalServerError)
+		return
+	}
+
+	// Optionnel : filtre broadcaster_id en query string
+	broadcasterID := r.URL.Query().Get("broadcaster_id")
+
+	summary, err := a.fetchAnalysisSummary(r.Context(), sessionUUID, broadcasterID)
+	if err != nil {
+		log.Printf("fetchAnalysisSummary error: %v", err)
+		http.Error(w, "failed to load analysis", http.StatusBadGateway)
+		return
+	}
+
+	data := struct {
+		Title         string
+		CurrentUser   *CurrentUser
+		SessionUUID   string
+		Summary       *AnalysisSummary
+		BroadcasterID string
+		Purged        bool
+		IsSaved       bool
+	}{
+		Title:         "Analyse de session sauvegardée",
+		CurrentUser:   u,
+		SessionUUID:   sessionUUID,
+		Summary:       summary,
+		BroadcasterID: broadcasterID,
+		Purged:        false,
+		IsSaved:       true,
+	}
+
+	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
+		log.Printf("template error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func (a *App) fetchAnalysisSummary(ctx context.Context, sessionUUID, broadcasterID string) (*AnalysisSummary, error) {
