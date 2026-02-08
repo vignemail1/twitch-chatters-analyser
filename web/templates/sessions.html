@@ -71,14 +71,22 @@
                 </td>
                 <td data-utc-date="{{ .CreatedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">{{ .CreatedAt.Format "02/01/2006 15:04" }}</td>
                 <td data-utc-date="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">{{ .UpdatedAt.Format "02/01/2006 15:04" }}</td>
-                <td style="display: flex; gap: 0.5rem;">
-                    <a href="/analysis/saved/{{ .SessionUUID }}" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
-                        🔍 Consulter
-                    </a>
-                    <form method="post" action="/sessions/delete" style="display: inline;">
-                        <input type="hidden" name="session_uuid" value="{{ .SessionUUID }}">
-                        <button type="submit" style="background-color: #dc2626; border-color: #dc2626;" onclick="return confirm('Supprimer définitivement cette session ?')">🗑️ Supprimer</button>
-                    </form>
+                <td>
+                    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                        <a href="/analysis/saved/{{ .SessionUUID }}" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600; white-space: nowrap;">
+                            🔍 Consulter
+                        </a>
+                        <a href="/sessions/export/{{ .SessionUUID }}?format=csv" style="display: inline-block; background-color: #047857; color: #fff; padding: 0.5rem 0.75rem; border-radius: 4px; text-decoration: none; font-weight: 600; white-space: nowrap;" title="Exporter en CSV">
+                            📄 CSV
+                        </a>
+                        <a href="/sessions/export/{{ .SessionUUID }}?format=json" style="display: inline-block; background-color: #0369a1; color: #fff; padding: 0.5rem 0.75rem; border-radius: 4px; text-decoration: none; font-weight: 600; white-space: nowrap;" title="Exporter en JSON">
+                            📋 JSON
+                        </a>
+                        <form method="post" action="/sessions/delete" style="display: inline;">
+                            <input type="hidden" name="session_uuid" value="{{ .SessionUUID }}">
+                            <button type="submit" style="background-color: #dc2626; border-color: #dc2626; padding: 0.5rem 0.75rem; white-space: nowrap;" onclick="return confirm('Supprimer définitivement cette session ?')" title="Supprimer la session">🗑️</button>
+                        </form>
+                    </div>
                 </td>
             </tr>
         {{ end }}
@@ -89,6 +97,7 @@
 <div style="margin-top: 2rem;">
     <h3>💡 Astuce</h3>
     <p style="color: #adadb8;">Les sessions sauvegardées ne seront pas supprimées lors de la déconnexion. Vous pouvez les consulter à tout moment pour comparer les résultats d'analyses précédentes.</p>
+    <p style="color: #adadb8;">Les exports CSV et JSON contiennent toutes les données capturées : ID Twitch, login, nom d'affichage, date de création du compte, nombre de fois vu, première et dernière détection.</p>
 </div>
 </main>
 </body>
