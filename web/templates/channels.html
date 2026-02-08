@@ -14,7 +14,11 @@
         {{ if .CurrentUser }}
             Connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong> ({{ .CurrentUser.Login }})
             <p><a href="/channels">Voir mes chaînes modérées</a></p>
+            {{ if .HasActiveSession }}
             <p><a href="/analysis">Voir l'analyse de la session</a></p>
+            {{ end }}
+            <p><a href="/sessions">Mes sessions sauvegardées</a></p>
+            <p><a href="/auth/logout" style="color: #ef4444;">Se déconnecter</a></p>
         {{ else }}
             <a href="/auth/login">Se connecter avec Twitch</a>
         {{ end }}
