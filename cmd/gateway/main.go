@@ -156,6 +156,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/analysis", app.handleAnalysis)
 	mux.HandleFunc("/sessions/capture", app.handleCreateCapture)
+	mux.HandleFunc("/sessions/purge", app.handlePurgeSession)
 	mux.HandleFunc("/channels", app.handleChannels)
 	mux.HandleFunc("/auth/login", app.handleAuthLogin)
 	mux.HandleFunc("/auth/callback", app.handleAuthCallback)
@@ -759,6 +760,67 @@ func (a *App) handleCreateCapture(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/channels?capture_enqueued=1", http.StatusFound)
 }
 
+func (a *App) handlePurgeSession(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+
+	// Récupérer la session active
+	var sessionID int64
+	err := a.db.QueryRowContext(r.Context(),
+		`SELECT id FROM sessions WHERE user_id = ? AND status = 'active' LIMIT 1`,
+		u.ID,
+	).Scan(&sessionID)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Redirect(w, r, "/analysis?purge_no_session=1", http.StatusFound)
+			return
+		}
+		log.Printf("query session error: %v", err)
+		http.Error(w, "failed to query session", http.StatusInternalServerError)
+		return
+	}
+
+	// Suppression en cascade : capture_chatters -> captures -> session
+	// 1. Détruire capture_chatters
+	_, err = a.db.ExecContext(r.Context(), `
+DELETE cc FROM capture_chatters cc
+JOIN captures c ON cc.capture_id = c.id
+WHERE c.session_id = ?
+`, sessionID)
+	if err != nil {
+		log.Printf("delete capture_chatters error: %v", err)
+		http.Error(w, "failed to purge session", http.StatusInternalServerError)
+		return
+	}
+
+	// 2. Détruire captures
+	_, err = a.db.ExecContext(r.Context(), `DELETE FROM captures WHERE session_id = ?`, sessionID)
+	if err != nil {
+		log.Printf("delete captures error: %v", err)
+		http.Error(w, "failed to purge session", http.StatusInternalServerError)
+		return
+	}
+
+	// 3. Marquer la session comme 'purged' ou supprimer
+	_, err = a.db.ExecContext(r.Context(), `UPDATE sessions SET status = 'purged', updated_at = NOW(6) WHERE id = ?`, sessionID)
+	if err != nil {
+		log.Printf("update session error: %v", err)
+		http.Error(w, "failed to purge session", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("session %d purged by user %d", sessionID, u.ID)
+	http.Redirect(w, r, "/analysis?purged=1", http.StatusFound)
+}
+
 func (a *App) getActiveSessionUUID(ctx context.Context, userID int64) (string, error) {
 	var sessionUUID string
 	err := a.db.QueryRowContext(ctx,
@@ -802,12 +864,14 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		SessionUUID  string
 		Summary      *AnalysisSummary
 		BroadcasterID string
+		Purged       bool
 	}{
 		Title:        "Analyse de session",
 		CurrentUser:  u,
 		SessionUUID:  sessionUUID,
 		Summary:      summary,
 		BroadcasterID: broadcasterID,
+		Purged:       r.URL.Query().Get("purged") == "1",
 	}
 
 	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
