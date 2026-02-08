@@ -798,7 +798,7 @@ func (a *App) handleAnalysis(w http.ResponseWriter, r *http.Request) {
 		BroadcasterID: broadcasterID,
 	}
 
-	if err := a.templates.ExecuteTemplate(w, "analysis.html", data); err != nil {
+	if err := a.templates.ExecuteTemplate(w, "analysis_page", data); err != nil {
 		log.Printf("template error: %v", err)
 		http.Error(w, "internal server error", http.StatusInternalServerError)
 	}
