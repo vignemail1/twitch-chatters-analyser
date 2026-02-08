@@ -1,149 +1,280 @@
 # Twitch Chatters Analyser
 
-Twitch Chatters Analyser est un outil destiné aux **modérateurs Twitch** pour analyser les comptes présents dans le chat d'une chaîne et aider à déterminer si le nombre de spectateurs affiché est légitime ou fortement influencé par des bots.
+🔍 Outil d'analyse des chatters Twitch pour détecter les viewer bots en analysant les dates de création de comptes et les patterns suspects.
 
-L'application :
+## 🎯 Objectif
 
-- s'authentifie via Twitch pour récupérer un **token user** avec les scopes nécessaires ;
-- permet de **lister les chaînes** pour lesquelles l'utilisateur est modérateur ;
-- capture les **chatters en temps réel** pour une chaîne donnée ;
-- agrège ces comptes par **date de création** (jour/mois) afin de détecter des vagues de comptes créés en masse ;
-- supporte plusieurs utilisateurs en parallèle, en isolant leurs sessions et données d'analyse.
+Cette application aide les modérateurs Twitch à identifier les **viewer bots** en capturant les utilisateurs présents dans le chat d'une chaîne et en analysant leurs données de profil.
 
-Le projet est découpé en plusieurs **micro‑services en Go**, orchestrés via Docker Compose, avec MySQL comme base de données centrale.
+### Indicateurs de bots
 
----
+- 📅 **Dates de création groupées** : Des dizaines ou centaines de comptes créés le même jour
+- ⏱️ **Comptes récents** : Créés dans les dernières semaines/mois
+- 🔄 **Changements fréquents de noms** : Historique de renommages suspects
+- 📊 **Pics anormaux** : Vagues de création concentrées dans le temps
 
-## Objectifs
+## 🛠️ Architecture
 
-- Aider les modérateurs à détecter des **viewer bots** en observant :
-  - les dates de création des comptes présents dans le chat ;
-  - les concentrations anormales de comptes créés sur un ou quelques jours ;
-  - les comptes qui **changent souvent de pseudo** (cas potentiellement suspects).
-- Proposer une interface **mobile‑first**, utilisable rapidement pendant un live.
-- Fournir un système **multi‑utilisateur** avec isolation des données par session d'analyse.
+L'application est composée de 4 microservices Go :
 
----
+```
+┌───────────────────────────────────┐
+│          Utilisateur (Modérateur)       │
+└───────────────┬────────────────────┘
+                │
+                │ HTTP
+                │
+     ┌──────────┼────────────┐
+     │         Gateway          │   (Port 8080)
+     │ - Auth Twitch           │
+     │ - Sessions utilisateur  │
+     │ - Interface Web         │
+     └──────┬─────────────┬────┘
+            │              │
+            │              │ HTTP
+            │              │
+     MySQL  │       ┌──────┼───────────┐
+       +    │       │     Analysis     │   (Port 8083)
+      Jobs  │       │ - Aggrégations  │
+            │       │ - Top N dates   │
+            │       └──────┬───────────┘
+            │              │
+     ┌──────┼───────       │ MySQL
+     │     Worker       │       │
+     │ - Fetch chatters│       │
+     │ - Enrich users  │       │
+     │ - Job queue     │       │
+     └──────────┬───────       │
+                │              │
+                │ Twitch API   │
+                │              │
+                └────────────────┘
+```
 
-## Fonctionnalités principales
+### Services
 
-- **Authentification Twitch (OAuth2)**  
-  - Connexion via Twitch.  
-  - Récupération d'un token user avec les scopes :
-    - `user:read:moderated_channels`
-    - `moderator:read:chatters`
-  - Les tokens sont stockés dans la session web et **supprimés** en fin de session ou lors de la déconnexion.
+1. **Gateway** (`cmd/gateway`) - Interface web + authentification OAuth2 Twitch
+2. **Worker** (`cmd/worker`) - Traite les jobs asynchrones (fetch chatters, enrich users)
+3. **Analysis** (`cmd/analysis`) - Calcule les statistiques et aggrégations
+4. **Twitch-API** (`cmd/twitch-api`) - (Optionnel) Proxy avec rate limiting centralisé
 
-- **Sessions d'analyse**
-  - Chaque utilisateur peut créer une **session d'analyse** identifiée par un UUID.
-  - Une session regroupe une ou plusieurs captures de chatters pour une chaîne donnée.
-  - Une session a une durée de vie limitée (expiration automatique) sauf si l'utilisateur la marque comme **sauvegardée**.
+## ⚡ Installation rapide
 
-- **Liste des chaînes modérées**
-  - Récupération de la liste des broadcasters pour lesquels l'utilisateur est modérateur.
-  - Affichage sous forme de tableau (responsive), avec un bouton pour lancer une **capture de chatters**.
+### Prérequis
 
-- **Capture de chatters**
-  - Récupération de **tous les chatters** présents sur une chaîne (pagination Helix `getChatters`).
-  - Enregistrement dans la base des :
-    - chatters liés à une capture et à une session ;
-    - informations de base des comptes Twitch (`id`, `login`, `display_name`, `created_at`, etc.).
-  - Résumé affiché à l'utilisateur :
-    - nombre total de chatters capturés ;
-    - nombre de comptes encore inconnus ajoutés en base.
+- Docker & Docker Compose
+- Application Twitch (créée sur [dev.twitch.tv](https://dev.twitch.tv/console/apps))
+- Être modérateur sur au moins une chaîne Twitch
 
-- **Analyse**
-  - Pour chaque session/broadcaster :
-    - nombre total de comptes référencés ;
-    - **top 10 des jours de création** de comptes (date + nombre) ;
-    - filtres sur les X derniers jours / semaines ;
-    - export **CSV** et **JSON** des agrégations.
-  - Utilisation d'**Apache ECharts** pour les graphiques (bar/line).
-
-- **Renommage de comptes**
-  - L'identifiant **unique** d'un compte est toujours `twitch_user_id` (ID Helix).
-  - Les `login`/`display_name` peuvent changer :
-    - chaque changement détecté est historisé dans une table dédiée avec la date de détection ;
-    - un nombre élevé de renommages pour un compte peut être traité comme un signal suspect dans des analyses futures.
-
-- **Traitement asynchrone et rate limiting**
-  - Les captures ne font pas directement des dizaines d'appels Twitch depuis la requête HTTP.
-  - À la place, le backend crée des **jobs** dans une file (MySQL), traités par un worker asynchrone.
-  - Un service dédié gère les appels Helix et applique un **rate limiting global** pour rester sous les limites Twitch.
-
-- **Traçabilité**
-  - Chaque événement important est loggé :
-    - authentification, déconnexion, expiration de session,
-    - création/sauvegarde/chargement de session d'analyse,
-    - demande de capture et fin de capture,
-    - export CSV/JSON,
-    - détection de renommage de compte.
-  - Les logs sont à la fois :
-    - en base (table d'audit),
-    - en stdout pour centralisation via Docker/host.
-
----
-
-## Architecture (résumé)
-
-Le projet est découpé en plusieurs micro‑services Go :
-
-- **gateway**  
-  - HTTP server principal (server‑rendered)  
-  - gère l'auth Twitch, les sessions web, les pages HTML, les exports.  
-
-- **twitch-api**  
-  - encapsule tous les appels à l'API Twitch Helix (OAuth, getChatters, users, moderated channels).  
-  - impose le rate limiting global.  
-
-- **worker**  
-  - consomme les jobs depuis la base (captures, enrichissement des comptes).  
-  - appelle `twitch-api` pour toutes les requêtes externes.  
-
-- **analysis**  
-  - fournit des endpoints internes pour les agrégations (top jours, exports, stats).  
-
-Tous ces services partagent la même base MySQL.
-
-La documentation détaillée de l'architecture et des flux se trouve dans [`dev/architecture.md`](dev/architecture.md).
-
----
-
-## Démarrage rapide (à venir)
-
-Le projet est encore en phase de conception. À terme, l'objectif est de pouvoir :
+### 1. Cloner le projet
 
 ```bash
 git clone https://github.com/vignemail1/twitch-chatters-analyser.git
 cd twitch-chatters-analyser
-
-# configuration (variables d'environnement ou fichier .env)
-cp dev/example.env .env
-# édition de .env (identifiants Twitch, DSN MySQL, secrets...)
-
-# lancement en local
-docker-compose up --build
 ```
 
+### 2. Configuration
+
+Créez votre fichier `.env` :
+
+```bash
+cp .env.example .env
+```
+
+Éditez `.env` et remplissez **obligatoirement** :
+
+```bash
+# Obtenez ces valeurs sur https://dev.twitch.tv/console/apps
+TWITCH_CLIENT_ID=votre_client_id
+TWITCH_CLIENT_SECRET=votre_client_secret
+TWITCH_REDIRECT_URL=http://localhost:8080/auth/callback
+
+# Sécurisé pour la production
+APP_SESSION_SECRET=changez-moi-en-production
+```
+
+### 3. Lancer l'application
+
+```bash
+docker-compose up -d
+```
+
+L'initialisation prend ~30 secondes (création de la DB).
+
+### 4. Accéder à l'interface
+
+Ouvrez http://localhost:8080 dans votre navigateur.
+
+## 📚 Utilisation
+
+### Étape 1 : Connexion
+
+1. Cliquez sur **"Se connecter avec Twitch"**
+2. Autorisez les permissions demandées :
+   - `user:read:moderated_channels` - Lister vos chaînes modérées
+   - `moderator:read:chatters` - Lire les chatters du salon
+
+### Étape 2 : Capturer les chatters
+
+1. Allez sur **"/channels"** pour voir vos chaînes modérées
+2. Cliquez sur **"Capturer les chatters"** pour la chaîne à analyser
+3. Le worker traite la capture en arrière-plan (quelques secondes à minutes selon le nombre de viewers)
+
+### Étape 3 : Analyser les résultats
+
+1. Allez sur **"/analysis"** pour voir le résumé
+2. Consultez le **Top 10 des jours de création de comptes**
+3. Identifiez les **pics suspects** (100+ comptes le même jour = suspect)
+
+## 📊 Que regarder dans les résultats ?
+
+### ⚠️ Signaux d'alerte
+
+| Indicateur | Valeur suspecte | Explication |
+|------------|-----------------|-------------|
+| Comptes/jour | 50+ | Pic anormal de créations |
+| Date de création | < 3 mois | Comptes très récents |
+| Concentration | 3-5 jours | Vague de bots groupée |
+
+### ✅ Cas normaux
+
+- Distribution étalée sur plusieurs années
+- Pas de pic supérieur à 20-30 comptes/jour
+- Majorité de comptes anciens (> 1 an)
+
+## 🔧 Développement
+
+### Structure du projet
+
+```
+.
+├── cmd/
+│   ├── gateway/      # Interface web
+│   ├── worker/       # Traitement asynchrone
+│   ├── analysis/     # Service d'analyse
+│   └── twitch-api/   # (TODO) Proxy rate-limité
+├── web/
+│   ├── static/       # CSS, JS
+│   └── templates/    # Templates HTML Go
+├── dev/
+│   └── schema.sql    # Schéma MySQL
+├── docker-compose.yml
+└── .env.example
+```
+
+### Lancer en mode dev
+
+```bash
+# Rebuild après modification du code Go
+docker-compose build
+docker-compose up
+
+# Voir les logs
+docker-compose logs -f gateway
+docker-compose logs -f worker
+
+# Accéder à la DB
+docker-compose exec db mysql -u twitch -ptwitchpass twitch_chatters
+```
+
+### Rebuilder un service spécifique
+
+```bash
+docker-compose build gateway
+docker-compose restart gateway
+```
+
+## 💾 Base de données
+
+### Tables principales
+
+- `users` - Utilisateurs de l'app (modérateurs)
+- `web_sessions` - Sessions web avec tokens Twitch
+- `sessions` - Sessions d'analyse
+- `captures` - Snapshots de chatters
+- `capture_chatters` - Lien capture ↔ users
+- `twitch_users` - Infos enrichies des comptes Twitch
+- `twitch_user_names` - Historique des renommages
+- `jobs` - File d'attente pour le worker
+
+### Accéder à MySQL
+
+```bash
+docker-compose exec db mysql -u root -prootpass twitch_chatters
+```
+
+## 🚀 Production
+
+### Sécurité
+
+⚠️ **Avant de déployer en production** :
+
+1. **Changez tous les mots de passe** dans `.env`
+2. **Activez HTTPS** (requis pour OAuth2 Twitch)
+3. **Mettez `Secure: true`** dans les cookies (main.go ligne ~250 et ~463)
+4. **Limitez l'accès MySQL** (pas d'exposition publique)
+5. **Sauvegardez régulièrement** la base de données
+
+### Variables d'environnement importantes
+
+```bash
+APP_ENV=production
+TWITCH_REDIRECT_URL=https://votre-domaine.com/auth/callback
+MYSQL_ROOT_PASSWORD=mot-de-passe-fort-ici
+APP_SESSION_SECRET=clé-secrète-aléatoire-longue
+```
+
+### Reverse Proxy (Traefik, Nginx, Caddy)
+
+Exposez uniquement le **gateway (port 8080)** publiquement. Les autres services (worker, analysis, db) doivent rester internes au réseau Docker.
+
+## 🐛 Débogage
+
+### Problèmes courants
+
+#### "Twitch auth not configured"
+
+→ Vérifiez que `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` et `TWITCH_REDIRECT_URL` sont bien définis dans `.env`
+
+#### "failed to load channels" / 403 Forbidden
+
+→ Vérifiez que vous êtes bien **modérateur** sur au moins une chaîne et que le scope `user:read:moderated_channels` est autorisé
+
+#### "no active analysis session" sur /analysis
+
+→ Capturez d'abord des chatters depuis `/channels` avant d'aller sur `/analysis`
+
+#### Le worker ne traite pas les jobs
+
+```bash
+# Vérifier les logs
+docker-compose logs worker
+
+# Vérifier la queue
+docker-compose exec db mysql -u twitch -ptwitchpass -e "SELECT * FROM twitch_chatters.jobs ORDER BY id DESC LIMIT 10;"
+```
+
+## 📝 TODO / Améliorations futures
+
+- [ ] Service `twitch-api` avec rate limiting centralisé
+- [ ] Historique des changements de noms (table `twitch_user_names`)
+- [ ] Recherche/filtres avancés sur les résultats
+- [ ] Export CSV/JSON des résultats
+- [ ] Graphiques interactifs (Chart.js)
+- [ ] Notifications Discord/Slack des résultats
+- [ ] API REST publique pour intégrations externes
+- [ ] Authentification multi-facteurs (2FA)
+- [ ] Comparaison entre plusieurs captures
+- [ ] Détection automatique de patterns suspects
+
+## 📜 Licence
+
+MIT License - Libre d'utilisation
+
+## 💬 Support
+
+Problème ? Ouvrez une [issue](https://github.com/vignemail1/twitch-chatters-analyser/issues) !
+
 ---
 
-## Statut du projet
-
-- [x] Définition du besoin fonctionnel  
-- [x] Choix technologique (Go, MySQL, Docker, ECharts)  
-- [ ] Schéma SQL détaillé  
-- [ ] Squelettes de services Go  
-- [ ] Implémentation des flux OAuth + captures  
-- [ ] Première version utilisable
-
----
-
-## Contribuer
-
-Le projet est actuellement développé pour répondre à un besoin précis de modération. Les contributions sont les bienvenues une fois la première version stabilisée :
-
-- améliorations d'UX (filtres, tri, nouvelles visualisations) ;
-- détection plus avancée de comportements suspects ;
-- intégration avec d'autres outils de modération.
-
-Les détails (guidelines, style Go, etc.) seront précisés dans [`dev/contributing.md`](dev/contributing.md) ultérieurement.
+🚀 **Happy bot hunting!** 🔍
