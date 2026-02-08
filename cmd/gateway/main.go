@@ -124,7 +124,19 @@ func main() {
 		log.Fatalf("cannot ping DB: %v", err)
 	}
 
-	tmpls, err := template.ParseGlob("web/templates/*.html")
+	// Ajouter les fonctions personnalisées pour les templates
+	funcMap := template.FuncMap{
+		"add": func(a, b int64) int64 { return a + b },
+		"mul": func(a, b int64) int64 { return a * b },
+		"div": func(a, b int64) int64 {
+			if b == 0 {
+				return 0
+			}
+			return a / b
+		},
+	}
+
+	tmpls, err := template.New("").Funcs(funcMap).ParseGlob("web/templates/*.html")
 	if err != nil {
 		log.Fatalf("cannot load templates: %v", err)
 	}
