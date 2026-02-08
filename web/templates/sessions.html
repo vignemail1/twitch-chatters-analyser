@@ -6,6 +6,7 @@
     <title>{{ .Title }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link href="/static/css/main.css" rel="stylesheet" />
+    <script src="/static/js/timezone.js"></script>
 </head>
 <body class="dark">
 <header>
@@ -68,8 +69,8 @@
                         <span style="color: #adadb8;">{{ .Status }}</span>
                     {{ end }}
                 </td>
-                <td>{{ .CreatedAt.Format "02/01/2006 15:04" }}</td>
-                <td>{{ .UpdatedAt.Format "02/01/2006 15:04" }}</td>
+                <td data-utc-date="{{ .CreatedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">{{ .CreatedAt.Format "02/01/2006 15:04" }}</td>
+                <td data-utc-date="{{ .UpdatedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">{{ .UpdatedAt.Format "02/01/2006 15:04" }}</td>
                 <td style="display: flex; gap: 0.5rem;">
                     <a href="/analysis/saved/{{ .SessionUUID }}" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
                         🔍 Consulter
