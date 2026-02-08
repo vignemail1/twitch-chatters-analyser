@@ -39,6 +39,24 @@
     {{ if .BroadcasterID }}
     <p><strong>Filtré pour :</strong> Broadcaster ID {{ .BroadcasterID }}</p>
     {{ end }}
+    
+    <div style="display: flex; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap;">
+        {{ if .IsSaved }}
+            <a href="/sessions/export/{{ .SessionUUID }}?format=csv" style="display: inline-block; background-color: #047857; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                📄 Exporter CSV
+            </a>
+            <a href="/sessions/export/{{ .SessionUUID }}?format=json" style="display: inline-block; background-color: #0369a1; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                📋 Exporter JSON
+            </a>
+        {{ else }}
+            <a href="/analysis/export?format=csv" style="display: inline-block; background-color: #047857; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                📄 Exporter CSV
+            </a>
+            <a href="/analysis/export?format=json" style="display: inline-block; background-color: #0369a1; color: #fff; padding: 0.5rem 1rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+                📋 Exporter JSON
+            </a>
+        {{ end }}
+    </div>
 </div>
 
 {{ if .Summary }}
