@@ -23,6 +23,13 @@
 <main>
 <h2>Mes chaînes modérées</h2>
 
+{{ if .SessionPurged }}
+    <div class="info" style="background-color: #15803d; border-left-color: #22c55e; margin-bottom: 1.5rem;">
+        <p><strong>✅ Session purgée avec succès</strong></p>
+        <p>Toutes les captures ont été supprimées. Vous pouvez maintenant capturer de nouveaux chatters pour une nouvelle analyse.</p>
+    </div>
+{{ end }}
+
 {{ if .CaptureEnqueued }}
     <div class="success">
         <p>✅ Une capture a été planifiée. Elle sera traitée par le worker dans quelques instants.</p>
