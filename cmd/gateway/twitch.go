@@ -80,16 +80,12 @@ func (a *App) fetchTwitchUser(ctx context.Context, accessToken string) (*twitchU
 	}, nil
 }
 
-// fetchModeratedChannels récupère les chaînes modérées par un utilisateur
-func (a *App) fetchModeratedChannels(ctx context.Context, accessToken, userID string) ([]struct {
-	BroadcasterID    string
-	BroadcasterLogin string
-	BroadcasterName  string
-}, error) {
+// fetchBroadcasterInfo récupère les informations du broadcaster (l'utilisateur connecté)
+func (a *App) fetchBroadcasterInfo(ctx context.Context, accessToken, userID string) (*twitchUser, error) {
 	params := url.Values{}
-	params.Set("user_id", userID)
+	params.Set("id", userID)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/moderation/channels?"+params.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/users?"+params.Encode(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -102,25 +98,87 @@ func (a *App) fetchModeratedChannels(ctx context.Context, accessToken, userID st
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("twitch users endpoint returned %s", resp.Status)
+	}
+
+	var ur twitchUsersResponse
+	if err := json.NewDecoder(resp.Body).Decode(&ur); err != nil {
+		return nil, err
+	}
+	if len(ur.Data) == 0 {
+		return nil, fmt.Errorf("no user data in response")
+	}
+	d := ur.Data[0]
+	return &twitchUser{
+		ID:              d.ID,
+		Login:           d.Login,
+		DisplayName:     d.DisplayName,
+		ProfileImageURL: d.ProfileImageURL,
+	}, nil
+}
+
+// fetchModeratedChannels récupère les chaînes modérées par un utilisateur + sa propre chaîne
+func (a *App) fetchModeratedChannels(ctx context.Context, accessToken, userID string) ([]struct {
+	BroadcasterID    string
+	BroadcasterLogin string
+	BroadcasterName  string
+}, error) {
+	// Récupérer les informations du broadcaster (pour sa propre chaîne)
+	broadcaster, err := a.fetchBroadcasterInfo(ctx, accessToken, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch broadcaster info: %w", err)
+	}
+
+	// Initialiser la liste avec la propre chaîne du broadcaster
+	out := []struct {
+		BroadcasterID    string
+		BroadcasterLogin string
+		BroadcasterName  string
+	}{
+		{
+			BroadcasterID:    broadcaster.ID,
+			BroadcasterLogin: broadcaster.Login,
+			BroadcasterName:  broadcaster.DisplayName,
+		},
+	}
+
+	// Récupérer les chaînes où l'utilisateur est modérateur
+	params := url.Values{}
+	params.Set("user_id", userID)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.twitch.tv/helix/moderation/channels?"+params.Encode(), nil)
+	if err != nil {
+		return out, nil // Retourner au moins la propre chaîne du broadcaster
+	}
+	req.Header.Set("Client-ID", a.twitchClientID)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return out, nil // Retourner au moins la propre chaîne du broadcaster
+	}
+	defer resp.Body.Close()
+
 	if resp.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("forbidden: missing scope user:read:moderated_channels or moderator rights")
+		// Si le scope n'est pas disponible, retourner au moins la propre chaîne
+		return out, nil
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("twitch moderation/channels returned %s", resp.Status)
+		return out, nil // Retourner au moins la propre chaîne du broadcaster
 	}
 
 	var tr twitchModeratedChannelsResponse
 	if err := json.NewDecoder(resp.Body).Decode(&tr); err != nil {
-		return nil, err
+		return out, nil // Retourner au moins la propre chaîne du broadcaster
 	}
 
-	out := make([]struct {
-		BroadcasterID    string
-		BroadcasterLogin string
-		BroadcasterName  string
-	}, 0, len(tr.Data))
-
+	// Ajouter les chaînes modérées (en évitant les doublons si par hasard l'API retournait la propre chaîne)
 	for _, c := range tr.Data {
+		// Éviter d'ajouter deux fois la même chaîne
+		if c.BroadcasterID == broadcaster.ID {
+			continue
+		}
 		out = append(out, struct {
 			BroadcasterID    string
 			BroadcasterLogin string
