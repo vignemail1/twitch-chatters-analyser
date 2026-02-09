@@ -83,6 +83,28 @@ func (a *App) handleChannels(w http.ResponseWriter, r *http.Request) {
 	channels, err := a.fetchModeratedChannels(r.Context(), sess.AccessToken, u.TwitchUserID)
 	if err != nil {
 		log.Printf("fetchModeratedChannels error: %v", err)
+		
+		// Si erreur d'authentification (token expiré/invalide), supprimer la session et rediriger
+		if strings.Contains(err.Error(), "401") || strings.Contains(err.Error(), "Unauthorized") {
+			log.Printf("token expired or invalid for user %d, clearing session", u.ID)
+			
+			// Supprimer la web_session
+			_, _ = a.db.ExecContext(r.Context(), `DELETE FROM web_sessions WHERE session_id = ?`, c.Value)
+			
+			// Supprimer le cookie
+			http.SetCookie(w, &http.Cookie{
+				Name:     "tca_session",
+				Value:    "",
+				Path:     "/",
+				MaxAge:   -1,
+				HttpOnly: true,
+			})
+			
+			// Rediriger vers login avec un message
+			http.Redirect(w, r, "/auth/login?expired=1", http.StatusFound)
+			return
+		}
+		
 		http.Error(w, "failed to load channels", http.StatusBadGateway)
 		return
 	}
