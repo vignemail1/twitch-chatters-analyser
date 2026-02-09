@@ -1,409 +1,369 @@
 # Twitch Chatters Analyser
 
-🔍 Outil d'analyse des chatters Twitch pour détecter les viewer bots en analysant les dates de création de comptes et les patterns suspects.
+Application d'analyse des spectateurs Twitch pour modérateurs et streamers.
 
-## 🎯 Objectif
+## 📊 Vue d'ensemble
 
-Cette application aide les modérateurs Twitch à identifier les **viewer bots** en capturant les utilisateurs présents dans le chat d'une chaîne et en analysant leurs données de profil.
+Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
+- 📋 Capturer périodiquement la liste des chatters actifs
+- 📈 Analyser les statistiques de participation
+- 🔍 Identifier les nouveaux spectateurs
+- 📊 Visualiser l'évolution dans le temps
+- 💾 Exporter les données pour analyses avancées
 
-### Indicateurs de bots
-
-- 📅 **Dates de création groupées** : Des dizaines ou centaines de comptes créés le même jour
-- ⏱️ **Comptes récents** : Créés dans les dernières semaines/mois
-- 🔄 **Changements fréquents de noms** : Historique de renommages suspects
-- 📊 **Pics anormaux** : Vagues de création concentrées dans le temps
-
-## ✨ Fonctionnalités
-
-### ✅ Implémentées
-
-- ✅ **Authentification OAuth2 Twitch** - Connexion sécurisée avec scopes modérateur
-- ✅ **Capture automatique des chatters** - Via API Twitch avec traitement asynchrone
-- ✅ **Enrichissement des profils** - Récupération dates de création et métadonnées
-- ✅ **Analyse statistique avancée** - Top 10 jours de création avec indicateurs de suspicion
-- ✅ **Sessions sauvegardées** - Conservation historique des analyses
-- ✅ **Export CSV/JSON** - Export complet avec filtrage
-- ✅ **Filtrage multi-broadcaster** - Cases à cocher pour sélectionner les chaînes à analyser
-- ✅ **Timezone navigateur** - Affichage des dates dans le fuseau horaire local
-- ✅ **Interface moderne** - Dark theme optimisé
-
-### 🚧 En développement
-
-- 🔄 **Historique des changements de noms** - Détection des renommages suspects
-- 🔄 **Détection automatique de patterns** - Score de suspicion et alertes
-- 🔄 **Service rate-limited centralisé** - Protection contre les bans API Twitch
-
-### 📋 Roadmap
-
-- [ ] Graphiques interactifs (Chart.js)
-- [ ] Comparaison entre captures
-- [ ] Notifications Discord/Slack
-- [ ] API REST publique
-- [ ] Recherche et filtres avancés
-
-## 🛠️ Architecture
-
-L'application est composée de 4 microservices Go :
-
-```
-┌───────────────────────────────────┐
-│          Utilisateur (Modérateur)       │
-└───────────────┬────────────────────┘
-                │
-                │ HTTP
-                │
-     ┌──────────┼────────────┐
-     │         Gateway          │   (Port 8080)
-     │ - Auth Twitch           │
-     │ - Sessions utilisateur  │
-     │ - Interface Web         │
-     │ - Export CSV/JSON       │
-     └──────┬─────────────┬────┘
-            │              │
-            │              │ HTTP
-            │              │
-     MySQL  │       ┌──────┼───────────┐
-       +    │       │     Analysis     │   (Port 8083)
-      Jobs  │       │ - Agrégations   │
-            │       │ - Top N dates   │
-            │       │ - Filtres       │
-            │       └──────┬───────────┘
-            │              │
-     ┌──────┼───────       │ MySQL
-     │     Worker       │       │
-     │ - Fetch chatters│       │
-     │ - Enrich users  │       │
-     │ - Job queue     │       │
-     └──────────┬───────       │
-                │              │
-                │ Twitch API   │
-                │              │
-                └────────────────┘
-```
+## 🏛️ Architecture
 
 ### Services
 
-1. **Gateway** (`cmd/gateway`) - Interface web + authentification OAuth2 Twitch + exports
-2. **Worker** (`cmd/worker`) - Traite les jobs asynchrones (fetch chatters, enrich users)
-3. **Analysis** (`cmd/analysis`) - Calcule les statistiques, agrégations et filtres
-4. **Twitch-API** (`cmd/twitch-api`) - *(En développement)* Proxy avec rate limiting centralisé
+```
+┌────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                                  │
+│                                   INFRASTRUCTURE                                               │
+│                                                                                                  │
+│  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐  │
+│  │   Gateway     │   │  Twitch-API  │   │   Worker      │   │  Analysis    │  │
+│  │  HTTP API    │   │  Rate Limit  │   │  Job Queue   │   │  Stats       │  │
+│  └───────┬────────┘   └───────┬────────┘   └───────┬────────┘   └───────┬────────┘  │
+│          │                   │               │               │             │
+│          v                   v               v               v             │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────┐  │
+│  │                                                                                            │  │
+│  │                 ┌─────────────────────────────────────────┐                     │  │
+│  │                 │         Backend Network              │                     │  │
+│  │                 └─────────────────┬────────────────────────┘                     │  │
+│  │                                  │                                                 │  │
+│  │                     ┌────────────┼────────────┐                                   │  │
+│  │                     │             │            │                                   │  │
+│  │                ┌────v───────────── ┌────v───────────┐                              │  │
+│  │                │   MariaDB       │ │    Redis      │                              │  │
+│  │                │   Database      │ │    Cache      │                              │  │
+│  │                └─────────────────┘ └────────────────┘                              │  │
+│  │                                                                                            │  │
+│  └───────────────────────────────────────────────────────────────────────────────────────┘  │
+│                                         │                                                    │
+│                                         v                                                    │
+│                                  ┌─────────────────┐                                         │
+│                                  │    Traefik     │                                         │
+│                                  │  HTTPS + TLS  │                                         │
+│                                  └────────┬────────┘                                         │
+└────────────────────────────────────────────────┬───────────────────────────────────────────────────────┘
+                                            │
+                                            v
+                               https://twitch-chatters.vignemail1.eu
+```
 
-## ⚡ Installation rapide
+- **Gateway** : API HTTP, authentification OAuth Twitch, gestion sessions
+- **Twitch-API** : Wrapper API Twitch avec rate limiting
+- **Worker** : Traitement asynchrone des jobs (captures, enrichissement)
+- **Analysis** : API d'analyse et statistiques
+- **MariaDB** : Base de données relationnelle (utilisateurs, sessions, captures)
+- **Redis** : Cache distribué, sessions, rate limiting
+- **Traefik** : Reverse proxy, terminaison TLS, load balancing
+
+### Stack Technique
+
+- **Backend** : Go 1.25
+- **Base de données** : MariaDB 11.2
+- **Cache** : Redis 7
+- **Reverse Proxy** : Traefik v3.2
+- **Containerisation** : Docker + Docker Compose
+- **TLS** : Let's Encrypt (automatique)
+
+## 🚀 Quick Start
 
 ### Prérequis
 
-- Docker & Docker Compose
-- Application Twitch (créée sur [dev.twitch.tv](https://dev.twitch.tv/console/apps))
-- Être modérateur sur au moins une chaîne Twitch
+- Docker 24+
+- Docker Compose v2+
+- Go 1.25+ (pour développement)
+- Compte Twitch Developer (OAuth app)
 
-### 1. Cloner le projet
+### Installation
 
 ```bash
+# Cloner le repository
 git clone https://github.com/vignemail1/twitch-chatters-analyser.git
 cd twitch-chatters-analyser
-```
 
-### 2. Configuration
-
-Créez votre fichier `.env` :
-
-```bash
+# Copier la configuration
 cp .env.example .env
+
+# Éditer les variables d'environnement
+vim .env
 ```
 
-Éditez `.env` et remplissez **obligatoirement** :
+### Configuration
+
+Dans `.env`, configurer :
 
 ```bash
-# Obtenez ces valeurs sur https://dev.twitch.tv/console/apps
+# Twitch OAuth
 TWITCH_CLIENT_ID=votre_client_id
 TWITCH_CLIENT_SECRET=votre_client_secret
-TWITCH_REDIRECT_URL=http://localhost:8080/auth/callback
+TWITCH_REDIRECT_URL=https://twitch-chatters.vignemail1.eu/auth/callback
 
-# Sécurisé pour la production
-APP_SESSION_SECRET=changez-moi-en-production
+# Base de données
+MYSQL_ROOT_PASSWORD=votre_mot_de_passe_root
+MYSQL_PASSWORD=votre_mot_de_passe_app
+
+# Session secret
+APP_SESSION_SECRET=$(openssl rand -base64 32)
+
+# Email Let's Encrypt
+ACME_EMAIL=votre-email@example.com
 ```
 
-### 3. Lancer l'application
+### DNS
+
+Configurer les enregistrements DNS :
+
+```dns
+twitch-chatters.vignemail1.eu      A    <IP_SERVEUR>
+twitch-chatters-dev.vignemail1.eu  A    <IP_SERVEUR>
+traefik.vignemail1.eu              A    <IP_SERVEUR>
+```
+
+### Démarrage
 
 ```bash
+# Démarrer tous les services
 docker-compose up -d
+
+# Vérifier les logs
+docker-compose logs -f
+
+# Vérifier l'état
+docker-compose ps
 ```
 
-L'initialisation prend ~30 secondes (création de la DB).
+### Accès
 
-### 4. Accéder à l'interface
+- **Application** : https://twitch-chatters.vignemail1.eu
+- **Dashboard Traefik** : https://traefik.vignemail1.eu (admin/changeme)
 
-Ouvrez [http://localhost:8080](http://localhost:8080) dans votre navigateur.
+## 📊 Ressources
 
-## 📚 Utilisation
+### Configuration par Défaut (1 replica par service)
 
-### Étape 1 : Connexion
+```
+CPU  : ~3 vCPU (moyenne)
+RAM  : ~4 GB
+Disk : ~12 GB + données utilisateurs
 
-1. Cliquez sur **"Se connecter avec Twitch"**
-2. Autorisez les permissions demandées :
-   - `user:read:moderated_channels` - Lister vos chaînes modérées
-   - `moderator:read:chatters` - Lire les chatters du salon
+Serveur recommandé : 4 vCPU, 8 GB RAM, 50 GB SSD
+Coût estimé : ~12€/mois (Hetzner CPX31)
+```
 
-### Étape 2 : Capturer les chatters
+### Avec Monitoring (Optionnel)
 
-1. Allez sur **"/channels"** pour voir vos chaînes modérées
-2. Cliquez sur **"Capturer les chatters"** pour la chaîne à analyser
-3. Le worker traite la capture en arrière-plan (quelques secondes à minutes selon le nombre de viewers)
-4. Vous pouvez capturer plusieurs chaînes dans la même session
+```bash
+# Démarrer avec monitoring
+docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 
-### Étape 3 : Analyser les résultats
+# Ressources supplémentaires
+CPU  : +1.5 vCPU
+RAM  : +2 GB
+Disk : +9 GB
 
-1. Allez sur **"/analysis"** pour voir le résumé
-2. **Filtrez par chaîne** (si plusieurs chaînes capturées) :
-   - Cochez/décochez les chaînes à analyser
-   - Les statistiques s'actualisent automatiquement
-3. Consultez le **Top 10 des jours de création de comptes**
-4. Identifiez les **pics suspects** :
-   - 🔴 **CRITIQUE** (100+ comptes/jour)
-   - 🟠 **SUSPECT** (50-99 comptes/jour)
-   - 🔵 **À SURVEILLER** (30-49 comptes/jour)
-   - 🟢 **NORMAL** (< 30 comptes/jour)
+Serveur recommandé : 8 vCPU, 12 GB RAM, 80 GB SSD
+```
 
-### Étape 4 : Exporter ou sauvegarder
+### Scalabilité Horizontale
 
-- **Exporter CSV/JSON** : Bouton en haut de la page d'analyse
-- **Sauvegarder la session** : Conserve l'historique pour consultation ultérieure
-- **Purger la session** : Supprime toutes les captures (action irréversible)
+```bash
+# Augmenter les replicas (en cas de charge)
+docker-compose up -d --scale gateway=2 --scale worker=3 --scale analysis=2
 
-## 📊 Que regarder dans les résultats ?
+# Ressources avec replicas
+CPU  : ~6 vCPU
+RAM  : ~7 GB
 
-### ⚠️ Signaux d'alerte
+Serveur recommandé : 8 vCPU, 16 GB RAM, 80 GB SSD
+Coût estimé : ~25€/mois (Hetzner CPX41)
+```
 
-| Indicateur | Valeur suspecte | Explication |
-|------------|-----------------|-------------|
-| Comptes/jour | 100+ | 🔴 Vague de bots quasi-certaine |
-| Comptes/jour | 50-99 | 🟠 Très probablement des bots |
-| Comptes/jour | 30-49 | 🔵 Potentiellement suspect |
-| Date de création | < 3 mois | Comptes très récents |
-| Concentration | 3-5 jours | Vague de bots groupée |
+## 📖 Documentation
 
-### ✅ Cas normaux
+### Guides Principaux
 
-- Distribution étalée sur plusieurs années
-- Pas de pic supérieur à 20-30 comptes/jour
-- Majorité de comptes anciens (> 1 an)
-- Pics isolés peuvent être des raids légitimes
+- [**SCALING.md**](docs/SCALING.md) : Scalabilité et optimisations de performance
+- [**TRAEFIK.md**](docs/TRAEFIK.md) : Configuration Traefik et TLS
+- [**MONITORING.md**](docs/MONITORING.md) : Stack de monitoring (Prometheus, Grafana, Loki)
+- [**RESOURCES.md**](docs/RESOURCES.md) : Besoins en ressources et coûts
 
-### 💡 Conseils d'analyse
+### Architecture
 
-- **Contexte important** : Un raid, un événement spécial ou une collaboration peut créer des pics normaux
-- **Combinez les indicateurs** : Ne vous fiez pas à un seul critère
-- **Historique** : Comparez plusieurs captures pour détecter des patterns récurrents
-- **Filtrage par chaîne** : Si vous streamez sur plusieurs chaînes, analysez-les séparément
+- `cmd/gateway/` : Point d'entrée HTTP, OAuth, sessions
+- `cmd/worker/` : Traitement asynchrone des jobs
+- `cmd/analysis/` : API d'analyse et statistiques
+- `cmd/twitch-api/` : Wrapper API Twitch avec rate limiting
+- `internal/` : Packages partagés (redis, db, utils)
+- `dev/` : Scripts de développement et schema SQL
 
 ## 🔧 Développement
 
-### Structure du projet
-
-```
-.
-├── cmd/
-│   ├── gateway/      # Interface web + auth + exports
-│   ├── worker/       # Traitement asynchrone
-│   ├── analysis/     # Service d'analyse
-│   └── twitch-api/   # (TODO) Proxy rate-limité
-├── web/
-│   ├── static/       # CSS, JS
-│   │   ├── css/
-│   │   └── js/
-│   └── templates/    # Templates HTML Go
-├── dev/
-│   ├── architecture.md    # Documentation technique
-│   ├── development.md     # Guide développeur
-│   └── schema.sql         # Schéma MySQL
-├── docker-compose.yml
-├── .env.example
-└── README.md
-```
-
-### Lancer en mode dev
+### Mode Développement
 
 ```bash
-# Rebuild après modification du code Go
+# Démarrer en mode dev (1 replica, ports exposés)
+docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+# Accès direct
+curl http://localhost:8080  # Gateway
+curl http://localhost:8083  # Analysis
+```
+
+### Build Local
+
+```bash
+# Builder les services
 docker-compose build
-docker-compose up
 
-# Voir les logs
-docker-compose logs -f gateway
-docker-compose logs -f worker
-docker-compose logs -f analysis
-
-# Accéder à la DB
-docker-compose exec db mysql -u twitch -ptwitchpass twitch_chatters
-```
-
-### Rebuilder un service spécifique
-
-```bash
+# Ou builder un service spécifique
 docker-compose build gateway
-docker-compose restart gateway
+
+# Rebuild sans cache
+docker-compose build --no-cache
 ```
 
-### Hot reload (développement local)
-
-Pour développer sans Docker :
+### Tests
 
 ```bash
-# Lancer uniquement MySQL
-docker-compose up db
+# Tests unitaires
+go test ./...
 
-# Dans un autre terminal, lancer un service Go
-cd cmd/gateway
-go run .
+# Tests avec couverture
+go test -cover ./...
+
+# Linting
+golangci-lint run
 ```
 
-## 💾 Base de données
+## 📦 Base de Données
 
-### Tables principales
+### Migrations
 
-- `users` - Utilisateurs de l'app (modérateurs)
-- `web_sessions` - Sessions web avec tokens Twitch
-- `sessions` - Sessions d'analyse
-- `captures` - Snapshots de chatters
-- `capture_chatters` - Lien capture ↔ users
-- `accounts` - Comptes Twitch dédupliqués
-- `twitch_users` - Infos enrichies des comptes Twitch
-- `twitch_user_names` - Historique des renommages
-- `jobs` - File d'attente pour le worker
+Le schéma est initialisé automatiquement au démarrage via `dev/schema.sql`.
 
-### Accéder à MySQL
+### Backup
 
 ```bash
-# Via Docker
-docker-compose exec db mysql -u twitch -ptwitchpass twitch_chatters
+# Backup complet
+docker exec twitch-chatters-db mariadb-dump -u root -p twitch_chatters > backup.sql
 
-# Requêtes utiles
-SELECT * FROM jobs ORDER BY id DESC LIMIT 10;
-SELECT * FROM sessions WHERE status = 'active';
-SELECT COUNT(*) FROM twitch_users WHERE created_at IS NOT NULL;
+# Restauration
+docker exec -i twitch-chatters-db mariadb -u root -p twitch_chatters < backup.sql
 ```
 
-## 🚀 Production
-
-### Sécurité
-
-⚠️ **Avant de déployer en production** :
-
-1. **Changez tous les mots de passe** dans `.env`
-2. **Activez HTTPS** (requis pour OAuth2 Twitch)
-3. **Mettez `Secure: true`** dans les cookies (main.go ligne ~250 et ~463)
-4. **Limitez l'accès MySQL** (pas d'exposition publique)
-5. **Sauvegardez régulièrement** la base de données
-6. **Configurez un reverse proxy** (Traefik, Nginx, Caddy)
-
-### Variables d'environnement importantes
+### Accès Direct
 
 ```bash
-APP_ENV=production
-TWITCH_REDIRECT_URL=https://votre-domaine.com/auth/callback
-MYSQL_ROOT_PASSWORD=mot-de-passe-fort-ici
-DB_PASSWORD=autre-mot-de-passe-fort
-APP_SESSION_SECRET=clé-secrète-aléatoire-longue-64-caracteres
+# Console MariaDB
+docker exec -it twitch-chatters-db mariadb -u twitch -p
+
+# Console Redis
+docker exec -it twitch-chatters-redis redis-cli
 ```
 
-### Reverse Proxy (Traefik, Nginx, Caddy)
+## 🔒 Sécurité
 
-Exposez uniquement le **gateway (port 8080)** publiquement. Les autres services (worker, analysis, db) doivent rester internes au réseau Docker.
+- ✅ TLS automatique via Let's Encrypt
+- ✅ Redirection HTTP → HTTPS
+- ✅ OAuth Twitch pour authentification
+- ✅ Sessions sécurisées (Redis)
+- ✅ Rate limiting distribué
+- ✅ Mots de passe hashés (bcrypt)
+- ✅ Secrets en variables d'environnement
 
-Exemple Nginx :
+## 📊 Monitoring (Optionnel)
 
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name votre-domaine.com;
+### Services Inclus
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
+- **Prometheus** : Métriques time-series
+- **Grafana** : Dashboards et visualisation
+- **Loki** : Agrégation logs
+- **Alertmanager** : Gestion alertes
+- **Exporters** : Node, cAdvisor, Redis, MySQL
 
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
-```
+### Accès Monitoring
 
-## 🐛 Débogage
+- **Grafana** : https://grafana.vignemail1.eu (admin/admin)
+- **Prometheus** : https://prometheus.vignemail1.eu
+- **Alertmanager** : https://alerts.vignemail1.eu
 
-### Problèmes courants
+## 🔧 Maintenance
 
-#### "Twitch auth not configured"
-
-→ Vérifiez que `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` et `TWITCH_REDIRECT_URL` sont bien définis dans `.env`
-
-#### "failed to load channels" / 403 Forbidden
-
-→ Vérifiez que vous êtes bien **modérateur** sur au moins une chaîne et que le scope `user:read:moderated_channels` est autorisé
-
-#### "no active analysis session" sur /analysis
-
-→ Capturez d'abord des chatters depuis `/channels` avant d'aller sur `/analysis`
-
-#### Le worker ne traite pas les jobs
+### Mise à Jour
 
 ```bash
-# Vérifier les logs
-docker-compose logs -f worker
+# Pull derniers changements
+git pull
 
-# Vérifier la queue
-docker-compose exec db mysql -u twitch -ptwitchpass -e "SELECT * FROM twitch_chatters.jobs ORDER BY id DESC LIMIT 10;"
-
-# Redémarrer le worker
-docker-compose restart worker
+# Rebuild et redémarrer
+docker-compose build
+docker-compose up -d
 ```
 
-#### Les dates ne s'affichent pas dans mon fuseau horaire
+### Nettoyage
 
-→ Le JavaScript `timezone.js` se charge automatiquement. Vérifiez la console du navigateur pour d'éventuelles erreurs.
+```bash
+# Arrêter et supprimer les containers
+docker-compose down
 
-#### Export CSV vide
+# Supprimer aussi les volumes (ATTENTION : perte de données)
+docker-compose down -v
 
-→ Attendez que le worker enrichisse les comptes. Cela peut prendre quelques minutes selon le nombre de viewers.
+# Nettoyer images non utilisées
+docker system prune -a
+```
 
-## 📝 Documentation technique
+### Logs
 
-Pour plus de détails sur l'architecture et le développement :
+```bash
+# Tous les logs
+docker-compose logs -f
 
-- [Architecture et conception](dev/architecture.md)
-- [Guide du développeur](dev/development.md)
-- [Schéma de base de données](dev/schema.sql)
+# Logs d'un service
+docker-compose logs -f gateway
 
-## 🤝 Contribution
+# Filtrer les erreurs
+docker-compose logs gateway | grep -i error
+```
 
-Les contributions sont les bienvenues !
+## 🚀 Performance
 
-1. Fork le projet
-2. Créez une branche (`git checkout -b feature/amazing-feature`)
-3. Committez vos changements (`git commit -m 'feat: add amazing feature'`)
-4. Push vers la branche (`git push origin feature/amazing-feature`)
-5. Ouvrez une Pull Request
+### Capacité Actuelle (1 replica)
 
-### Conventions de commit
+- ✅ 100-500 utilisateurs actifs simultanés
+- ✅ 1000-5000 captures/heure
+- ✅ 10-50 requêtes HTTP/sec
 
-- `feat:` Nouvelle fonctionnalité
-- `fix:` Correction de bug
-- `docs:` Documentation
-- `refactor:` Refactoring
-- `test:` Tests
-- `chore:` Maintenance
+### Avec Replicas (2 gateway, 3 workers, 2 analysis)
 
-## 📜 Licence
+- ✅ 500-1000 utilisateurs actifs
+- ✅ 5000-20000 captures/heure
+- ✅ 50-200 requêtes HTTP/sec
 
-MIT License - Libre d'utilisation et modification
+## 📝 Licence
 
-## 💬 Support
+MIT License - Voir [LICENSE](LICENSE) pour plus de détails
 
-Problème ? Question ? Ouvrez une [issue](https://github.com/vignemail1/twitch-chatters-analyser/issues) !
+## 👥 Auteur
+
+**vignemail1**
+- GitHub: [@vignemail1](https://github.com/vignemail1)
+- Email: vignemail1@gmail.com
+
+## 🚀 Roadmap
+
+- [ ] Interface web frontend (React/Vue)
+- [ ] Exports CSV/JSON des analyses
+- [ ] Webhooks Discord/Slack
+- [ ] API publique avec clés d'API
+- [ ] Support multi-chaînes
+- [ ] Détection des raids
+- [ ] Analyse sentiment (IA)
 
 ---
 
-🚀 **Happy bot hunting!** 🔍
-
-Fait avec ❤️ pour la communauté Twitch
+**👍 Vous utilisez ce projet ?** N'hésitez pas à ⭐ star le repo !
