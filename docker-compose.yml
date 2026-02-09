@@ -1,4 +1,51 @@
 services:
+  traefik:
+    image: traefik:v3.2
+    container_name: twitch-chatters-traefik
+    restart: unless-stopped
+    command:
+      # API et Dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=false"
+      # Log level
+      - "--log.level=INFO"
+      - "--accesslog=true"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=backend"
+      # Entrypoints HTTP/HTTPS
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Redirection HTTP -> HTTPS
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      # Let's Encrypt
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@vignemail1.eu}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik_letsencrypt:/letsencrypt
+    networks:
+      - backend
+    labels:
+      # Dashboard Traefik (accès via traefik.vignemail1.eu)
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik-dashboard.rule=Host(`traefik.vignemail1.eu`)"
+      - "traefik.http.routers.traefik-dashboard.entrypoints=websecure"
+      - "traefik.http.routers.traefik-dashboard.tls=true"
+      - "traefik.http.routers.traefik-dashboard.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.traefik-dashboard.service=api@internal"
+      # Auth basique pour dashboard (user: admin, password: changeme)
+      # Générer avec: echo $(htpasswd -nB admin) | sed -e s/\$/\$\$/g
+      - "traefik.http.routers.traefik-dashboard.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=${TRAEFIK_AUTH:-admin:$$2y$$05$$qH9S4qMxRbW5KxG5jZLxTOpkH.4YLbXn1A8RvKVH8FqCqVzWHFKRi}"
+
   redis:
     image: redis:7-alpine
     container_name: twitch-chatters-redis
@@ -54,13 +101,11 @@ services:
         condition: service_healthy
       twitch-api:
         condition: service_started
-    # Port retiré pour permettre les replicas
-    # Accès via Traefik ou directement sur le réseau backend
-    # Pour dev local : docker-compose exec gateway-1 wget -O- http://localhost:8080
+    # Communication interne uniquement, Traefik expose en HTTPS
     expose:
       - "8080"
     environment:
-      APP_ENV: ${APP_ENV:-dev}
+      APP_ENV: ${APP_ENV:-production}
       APP_PORT: "8080"
       DB_HOST: db
       DB_PORT: "3306"
@@ -82,10 +127,23 @@ services:
       replicas: 2
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.tca-gateway.rule=Host(`${TCA_HOSTNAME:-twitch-analyser.local}`)"
-      - "traefik.http.routers.tca-gateway.entrypoints=websecure"
-      - "traefik.http.routers.tca-gateway.tls=true"
+      # Production: twitch-chatters.vignemail1.eu
+      - "traefik.http.routers.tca-gateway-prod.rule=Host(`twitch-chatters.vignemail1.eu`)"
+      - "traefik.http.routers.tca-gateway-prod.entrypoints=websecure"
+      - "traefik.http.routers.tca-gateway-prod.tls=true"
+      - "traefik.http.routers.tca-gateway-prod.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.tca-gateway-prod.service=tca-gateway"
+      # Dev: twitch-chatters-dev.vignemail1.eu
+      - "traefik.http.routers.tca-gateway-dev.rule=Host(`twitch-chatters-dev.vignemail1.eu`)"
+      - "traefik.http.routers.tca-gateway-dev.entrypoints=websecure"
+      - "traefik.http.routers.tca-gateway-dev.tls=true"
+      - "traefik.http.routers.tca-gateway-dev.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.tca-gateway-dev.service=tca-gateway"
+      # Service (load balancing automatique entre les replicas)
       - "traefik.http.services.tca-gateway.loadbalancer.server.port=8080"
+      # Health check
+      - "traefik.http.services.tca-gateway.loadbalancer.healthcheck.path=/healthz"
+      - "traefik.http.services.tca-gateway.loadbalancer.healthcheck.interval=10s"
 
   twitch-api:
     build:
@@ -97,7 +155,7 @@ services:
       redis:
         condition: service_healthy
     environment:
-      APP_ENV: ${APP_ENV:-dev}
+      APP_ENV: ${APP_ENV:-production}
       APP_PORT: "8081"
       REDIS_URL: redis://redis:6379/1
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
@@ -127,7 +185,7 @@ services:
       twitch-api:
         condition: service_healthy
     environment:
-      APP_ENV: ${APP_ENV:-dev}
+      APP_ENV: ${APP_ENV:-production}
       DB_HOST: db
       DB_PORT: "3306"
       DB_NAME: ${MYSQL_DATABASE:-twitch_chatters}
@@ -155,12 +213,11 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    # Port retiré pour permettre les replicas
-    # Communication interne via http://analysis:8083
+    # Communication interne uniquement
     expose:
       - "8083"
     environment:
-      APP_ENV: ${APP_ENV:-dev}
+      APP_ENV: ${APP_ENV:-production}
       APP_PORT: "8083"
       DB_HOST: db
       DB_PORT: "3306"
@@ -183,3 +240,4 @@ networks:
 volumes:
   db_data:
   redis_data:
+  traefik_letsencrypt:
