@@ -1,4 +1,19 @@
 services:
+  redis:
+    image: redis:7-alpine
+    container_name: twitch-chatters-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   db:
     image: mariadb:11.2
     container_name: twitch-chatters-db
@@ -8,14 +23,19 @@ services:
       MARIADB_DATABASE: ${MYSQL_DATABASE:-twitch_chatters}
       MARIADB_USER: ${MYSQL_USER:-twitch}
       MARIADB_PASSWORD: ${MYSQL_PASSWORD:-twitchpass}
-    command: [ "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci" ]
+    command: [
+      "--character-set-server=utf8mb4",
+      "--collation-server=utf8mb4_unicode_ci",
+      "--max-connections=200",
+      "--innodb-buffer-pool-size=512M"
+    ]
     volumes:
-    - db_data:/var/lib/mysql
-    - ./dev/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - db_data:/var/lib/mysql
+      - ./dev/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     networks:
-    - backend
+      - backend
     healthcheck:
-      test: [ "CMD-SHELL", "healthcheck.sh --connect --innodb_initialized" ]
+      test: ["CMD-SHELL", "healthcheck.sh --connect --innodb_initialized"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -25,15 +45,17 @@ services:
     build:
       context: .
       dockerfile: ./cmd/gateway/Dockerfile
-    container_name: twitch-chatters-gateway
+    # Pas de container_name pour permettre les replicas
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
       twitch-api:
         condition: service_started
     ports:
-    - "8080:8080"
+      - "8080:8080"
     environment:
       APP_ENV: ${APP_ENV:-dev}
       APP_PORT: "8080"
@@ -42,6 +64,9 @@ services:
       DB_NAME: ${MYSQL_DATABASE:-twitch_chatters}
       DB_USER: ${MYSQL_USER:-twitch}
       DB_PASSWORD: ${MYSQL_PASSWORD:-twitchpass}
+      DB_MAX_OPEN_CONNS: "50"
+      DB_MAX_IDLE_CONNS: "10"
+      REDIS_URL: redis://redis:6379/0
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
       TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET}
       TWITCH_REDIRECT_URL: ${TWITCH_REDIRECT_URL}
@@ -49,14 +74,15 @@ services:
       TWITCH_API_BASE_URL: http://twitch-api:8081
       ANALYSIS_BASE_URL: http://analysis:8083
     networks:
-    - backend
-    # - traefik
+      - backend
+    deploy:
+      replicas: 2
     labels:
-    - "traefik.enable=true"
-    - "traefik.http.routers.tca-gateway.rule=Host(`${TCA_HOSTNAME:-twitch-analyser.local}`)"
-    - "traefik.http.routers.tca-gateway.entrypoints=websecure"
-    - "traefik.http.routers.tca-gateway.tls=true"
-    - "traefik.http.services.tca-gateway.loadbalancer.server.port=8080"
+      - "traefik.enable=true"
+      - "traefik.http.routers.tca-gateway.rule=Host(`${TCA_HOSTNAME:-twitch-analyser.local}`)"
+      - "traefik.http.routers.tca-gateway.entrypoints=websecure"
+      - "traefik.http.routers.tca-gateway.tls=true"
+      - "traefik.http.services.tca-gateway.loadbalancer.server.port=8080"
 
   twitch-api:
     build:
@@ -64,15 +90,19 @@ services:
       dockerfile: ./cmd/twitch-api/Dockerfile
     container_name: twitch-chatters-twitch-api
     restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       APP_ENV: ${APP_ENV:-dev}
       APP_PORT: "8081"
+      REDIS_URL: redis://redis:6379/1
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
       TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET}
       # Rate limiting: 10 req/sec = 600 req/min (marge sous les 800 de Twitch)
       RATE_LIMIT_REQUESTS_PER_SECOND: ${RATE_LIMIT_REQUESTS_PER_SECOND:-10}
     networks:
-    - backend
+      - backend
     healthcheck:
       test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/healthz || exit 1"]
       interval: 10s
@@ -84,10 +114,12 @@ services:
     build:
       context: .
       dockerfile: ./cmd/worker/Dockerfile
-    container_name: twitch-chatters-worker
+    # Pas de container_name pour permettre les replicas
     restart: unless-stopped
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       twitch-api:
         condition: service_healthy
@@ -98,23 +130,30 @@ services:
       DB_NAME: ${MYSQL_DATABASE:-twitch_chatters}
       DB_USER: ${MYSQL_USER:-twitch}
       DB_PASSWORD: ${MYSQL_PASSWORD:-twitchpass}
+      DB_MAX_OPEN_CONNS: "20"
+      DB_MAX_IDLE_CONNS: "5"
+      REDIS_URL: redis://redis:6379/2
       TWITCH_API_BASE_URL: http://twitch-api:8081
       TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
       JOB_POLL_INTERVAL: ${JOB_POLL_INTERVAL:-2}
     networks:
-    - backend
+      - backend
+    deploy:
+      replicas: 3
 
   analysis:
     build:
       context: .
       dockerfile: ./cmd/analysis/Dockerfile
-    container_name: twitch-chatters-analysis
+    # Pas de container_name pour permettre les replicas
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     ports:
-    - "8083:8083"
+      - "8083:8083"
     environment:
       APP_ENV: ${APP_ENV:-dev}
       APP_PORT: "8083"
@@ -123,14 +162,19 @@ services:
       DB_NAME: ${MYSQL_DATABASE:-twitch_chatters}
       DB_USER: ${MYSQL_USER:-twitch}
       DB_PASSWORD: ${MYSQL_PASSWORD:-twitchpass}
+      DB_MAX_OPEN_CONNS: "30"
+      DB_MAX_IDLE_CONNS: "10"
+      REDIS_URL: redis://redis:6379/3
+      CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-300}
     networks:
-    - backend
+      - backend
+    deploy:
+      replicas: 2
 
 networks:
   backend:
     driver: bridge
-  # traefik:
-  #   external: true
 
 volumes:
   db_data:
+  redis_data:
