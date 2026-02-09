@@ -22,7 +22,7 @@
     </div>
 </header>
 <main>
-<h2>📊 Analyse de {{ if .IsSaved }}session sauvegardée{{ else }}la session{{ end }}</h2>
+<h2>📊Analyse de {{ if .IsSaved }}session sauvegardée{{ else }}la session{{ end }}</h2>
 
 {{ if .Purged }}
 <div class="info" style="background-color: #15803d; border-left-color: #22c55e; margin-bottom: 1.5rem;">
@@ -115,6 +115,72 @@
         <p style="font-size: 1.2rem; margin: 0.5rem 0;"><strong>{{ .Summary.TotalAccounts }}</strong> comptes distincts capturés</p>
         <p style="color: #adadb8; font-size: 0.9rem; margin: 0.5rem 0;" data-utc-date="{{ .Summary.GeneratedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">Données générées le {{ .Summary.GeneratedAt.Format "02/01/2006 à 15:04" }}</p>
     </div>
+
+    <!-- Section comptes suspects avec renommages multiples -->
+    {{ if gt .Summary.SuspiciousRenamesCount 0 }}
+    <div style="background-color: #450a0a; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #ef4444;">
+        <h3 style="margin-top: 0; color: #ef4444;">⚠️ Comptes suspects avec renommages multiples</h3>
+        <p style="color: #fca5a5; font-weight: 600; font-size: 1.1rem; margin-bottom: 1rem;">
+            🔴 {{ .Summary.SuspiciousRenamesCount }} compte(s) ont changé de nom 3+ fois
+        </p>
+        <p style="color: #fecaca; margin-bottom: 1.5rem;">
+            Les comptes qui changent fréquemment de nom sont souvent des bots tentant d'éviter la détection.
+        </p>
+
+        <table style="width: 100%;">
+            <thead>
+                <tr>
+                    <th style="text-align: left;">User ID</th>
+                    <th style="text-align: left;">Nom actuel</th>
+                    <th style="text-align: center;">Changements</th>
+                    <th style="text-align: center;">Niveau</th>
+                    <th style="text-align: center;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {{ range .Summary.SuspiciousAccounts }}
+                <tr style="background-color: #7f1d1d;">
+                    <td><code style="background-color: #0e0e10; padding: 0.2rem 0.4rem; border-radius: 3px; font-size: 0.85rem;">{{ .TwitchUserID }}</code></td>
+                    <td>
+                        <strong style="color: #efeff1;">{{ .Login }}</strong>
+                        {{ if ne .Login .DisplayName }}
+                            <span style="color: #adadb8; font-size: 0.9rem;">({{ .DisplayName }})</span>
+                        {{ end }}
+                    </td>
+                    <td style="text-align: center;">
+                        <span style="background-color: #dc2626; color: #fff; padding: 0.25rem 0.75rem; border-radius: 12px; font-weight: 700; font-size: 0.9rem;">
+                            {{ .RenameCount }}
+                        </span>
+                    </td>
+                    <td style="text-align: center;">
+                        {{ if ge .RenameCount 6 }}
+                            <span style="color: #dc2626; font-weight: 700;">🔴 TRÈS SUSPECT</span>
+                        {{ else if ge .RenameCount 3 }}
+                            <span style="color: #f59e0b; font-weight: 600;">🟠 SUSPECT</span>
+                        {{ else }}
+                            <span style="color: #3b82f6;">🔵 À surveiller</span>
+                        {{ end }}
+                    </td>
+                    <td style="text-align: center;">
+                        <a href="/accounts/{{ .TwitchUserID }}/history" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.35rem 0.75rem; border-radius: 4px; text-decoration: none; font-size: 0.85rem; font-weight: 600;">
+                            🔍 Voir historique
+                        </a>
+                    </td>
+                </tr>
+                {{ end }}
+            </tbody>
+        </table>
+
+        <div style="margin-top: 1.5rem; padding: 1rem; background-color: #7f1d1d; border-radius: 4px;">
+            <h4 style="margin-top: 0; color: #fecaca;">📊 Critères de suspicion</h4>
+            <ul style="color: #fecaca; margin-left: 1.5rem; line-height: 1.8;">
+                <li><span style="color: #dc2626; font-weight: 700;">🔴 TRÈS SUSPECT (6+)</span> : Bot presque certain, changements fréquents pour éviter les bans</li>
+                <li><span style="color: #f59e0b; font-weight: 600;">🟠 SUSPECT (3-5)</span> : Comportement anormal, à investiguer</li>
+                <li><span style="color: #3b82f6;">🔵 À surveiller (1-2)</span> : Peut être légitime (rebranding, etc.)</li>
+            </ul>
+        </div>
+    </div>
+    {{ end }}
 
     <h3>📅 Top 10 des jours de création de comptes</h3>
 
