@@ -1,6 +1,6 @@
 # Guide de Scalabilité et Performance
 
-Ce document décrit les optimisations de performance et la stratégie de scalabilité horizontale implémentées dans le projet.
+Ce document décrit les optimisations de performance et la stratégie de scalabilité du projet.
 
 ## Table des matières
 
@@ -58,7 +58,109 @@ command:
 
 ## Scalabilité Horizontale
 
-### Architecture Multi-Réplicas
+### Architecture Actuelle (Single Instance)
+
+```
+┌─────────────────────────────┐
+│     Load Balancer (Traefik)  │
+└─────────┬───────────────────┘
+          │
+          v
+┌─────────────────┐
+│ Gateway         │  Stateless (1 instance)
+└─────────────────┘
+
+┌─────────────────┐
+│ Worker          │  Job Queue (1 instance)
+└─────────────────┘
+
+┌─────────────────┐
+│ Analysis        │  Cache (1 instance)
+└─────────────────┘
+
+┌─────────────────┐
+│ Twitch-API      │  Rate Limiting (1 instance)
+└─────────────────┘
+
+┌─────────────────┐
+│ Redis           │  Cache/Sessions (1 instance)
+└─────────────────┘
+
+┌─────────────────┐
+│ MariaDB         │  Shared State (1 instance)
+└─────────────────┘
+```
+
+**État actuel** : L'application utilise `container_name` dans docker-compose.yml, ce qui limite chaque service à **1 replica**.
+
+### Passer au Mode Multi-Réplicas
+
+Pour activer le scaling horizontal, il faut modifier `docker-compose.yml` :
+
+#### 1. Retirer les `container_name`
+
+```yaml
+# AVANT (actuel)
+gateway:
+  container_name: twitch-chatters-gateway  # ❌ Empêche scaling
+  
+# APRÈS (pour scaling)
+gateway:
+  # container_name retiré
+  deploy:
+    replicas: 2
+```
+
+#### 2. Exemple de Configuration Multi-Réplicas
+
+```yaml
+gateway:
+  # ... config existante ...
+  deploy:
+    replicas: 2
+    resources:
+      limits:
+        cpus: '1.0'
+        memory: 512M
+
+worker:
+  # ... config existante ...
+  deploy:
+    replicas: 3
+    resources:
+      limits:
+        cpus: '0.8'
+        memory: 512M
+
+analysis:
+  # ... config existante ...
+  deploy:
+    replicas: 2
+    resources:
+      limits:
+        cpus: '1.2'
+        memory: 1G
+```
+
+#### 3. Ajuster les Réplicas Dynamiquement
+
+**⚠️ Note** : Nécessite Docker Compose v2+ et mode Swarm pour `docker-compose up --scale`
+
+```bash
+# Mode Swarm (recommandé pour production)
+docker swarm init
+docker stack deploy -c docker-compose.yml twitch-chatters
+
+# Scaler les services
+docker service scale twitch-chatters_gateway=3
+docker service scale twitch-chatters_worker=5
+
+# Mode Compose (development)
+# Nécessite de retirer container_name d'abord
+docker-compose up -d --scale gateway=2 --scale worker=3
+```
+
+### Architecture Cible Multi-Réplicas
 
 ```
 ┌─────────────────────────────┐
@@ -67,54 +169,29 @@ command:
           │
     ┌─────┼─────┐
     │     │     │
-┌───v───v───v──┐
-│ Gateway x2      │  Stateless
-└─────────────────┘
+┌───v─────v─────v──┐
+│ Gateway x3        │  Stateless
+└───────────────────┘
 
-┌─────────────────┐
-│ Worker x3       │  Job Queue
-└─────────────────┘
+┌───────────────────┐
+│ Worker x5         │  Job Queue
+└───────────────────┘
 
-┌─────────────────┐
-│ Analysis x2     │  Cache
-└─────────────────┘
+┌───────────────────┐
+│ Analysis x2       │  Cache
+└───────────────────┘
 
-┌─────────────────┐
-│ Redis           │  Cache/Sessions
-└─────────────────┘
+┌───────────────────┐
+│ Twitch-API x1     │  Rate Limiting (pas besoin de scale)
+└───────────────────┘
 
-┌─────────────────┐
-│ MariaDB         │  Shared State
-└─────────────────┘
-```
+┌───────────────────┐
+│ Redis             │  Cache/Sessions (partagé)
+└───────────────────┘
 
-### Nombre de Réplicas
-
-```yaml
-gateway:
-  deploy:
-    replicas: 2  # 2x capacité HTTP
-
-worker:
-  deploy:
-    replicas: 3  # 3x throughput jobs
-
-analysis:
-  deploy:
-    replicas: 2  # 2x capacité analyses
-```
-
-### Ajuster les Réplicas
-
-```bash
-# Augmenter le nombre de workers
-docker-compose up -d --scale worker=5
-
-# Augmenter les gateways
-docker-compose up -d --scale gateway=3
-
-# Augmenter analysis
-docker-compose up -d --scale analysis=3
+┌───────────────────┐
+│ MariaDB           │  Shared State (partagé)
+└───────────────────┘
 ```
 
 ## Redis - Cache Distribué
@@ -122,10 +199,10 @@ docker-compose up -d --scale analysis=3
 ### Databases Redis (séparation logique)
 
 ```yaml
-Gateway:  redis://redis:6379/0  # Sessions web
+Gateway:    redis://redis:6379/0  # Sessions web
 Twitch-API: redis://redis:6379/1  # Rate limiting distribué
-Worker:   redis://redis:6379/2  # Métadonnées jobs
-Analysis: redis://redis:6379/3  # Cache des résultats
+Worker:     redis://redis:6379/2  # Métadonnées jobs
+Analysis:   redis://redis:6379/3  # Cache des résultats
 ```
 
 ### Utilisation du Cache
@@ -225,27 +302,38 @@ RATE_LIMIT_REQUESTS_PER_SECOND=10
 
 ### Ajustements selon la Charge
 
-#### Charge faible (< 100 users)
+#### Charge faible (< 100 users) - Configuration actuelle
+
 ```yaml
-gateway: replicas: 1
-worker: replicas: 1
-analysis: replicas: 1
+# Configuration actuelle (1 replica par service)
+gateway: 1 instance (container_name)
+worker: 1 instance (container_name)
+analysis: 1 instance (container_name)
 ```
 
+**Capacité** : 100-500 utilisateurs simultanés
+
 #### Charge moyenne (100-1000 users)
+
 ```yaml
-gateway: replicas: 2
-worker: replicas: 3
+# Nécessite de retirer container_name
+gateway: replicas: 2-3
+worker: replicas: 3-5
 analysis: replicas: 2
 ```
 
+**Capacité** : 500-1000 utilisateurs simultanés
+
 #### Charge élevée (> 1000 users)
+
 ```yaml
-gateway: replicas: 4
-worker: replicas: 5
-analysis: replicas: 3
+gateway: replicas: 4-5
+worker: replicas: 5-10
+analysis: replicas: 3-4
 # + Envisager read replicas MariaDB
 ```
+
+**Capacité** : > 1000 utilisateurs simultanés
 
 ## Monitoring
 
@@ -263,7 +351,7 @@ docker exec twitch-chatters-db mariadb -u twitch -p -e \
 # Utilisation Redis
 docker exec twitch-chatters-redis redis-cli INFO memory
 
-# Nombre de réplicas actifs
+# Services actifs
 docker-compose ps
 ```
 
@@ -294,23 +382,39 @@ docker-compose logs gateway | grep "in [0-9]\+ms" | awk '$NF > 1000'
 
 ## Gains de Performance Attendus
 
-### Avec Optimisations Verticales
+### Avec Optimisations Verticales (actuel)
+
 - **Indexes** : 2-5x plus rapide sur requêtes filtrées
 - **Connection pool** : Élimination des timeouts de connexion
+- **Redis cache** : 100-1000x plus rapide (< 1ms vs 100-1000ms)
 
-### Avec Replicas
+### Avec Replicas (après migration)
+
 - **Gateway x2** : 2x capacité HTTP (req/sec)
 - **Worker x3** : 3x throughput jobs
 - **Analysis x2** : 2x capacité analyses
 
-### Avec Redis Cache
+### Avec Redis Cache (actuel)
+
 - **Cache hit** : 100-1000x plus rapide (< 1ms vs 100-1000ms)
 - **Réduction charge DB** : 50-80% selon taux de hit
 - **Rate limiting distribué** : Cohérence entre toutes les instances
 
 ## Évolutions Futures
 
-### Phase Suivante (si nécessaire)
+### Étape 1 : Activer Multi-Réplicas (prioritaire)
+
+1. **Modifier docker-compose.yml**
+   - Retirer tous les `container_name`
+   - Ajouter sections `deploy.replicas`
+   - Tester avec `--scale`
+
+2. **Migrer vers Docker Swarm**
+   - `docker swarm init`
+   - `docker stack deploy`
+   - Scaling dynamique
+
+### Étape 2 : Haute Disponibilité
 
 1. **MariaDB Read Replicas**
    - Séparation lecture/écriture
