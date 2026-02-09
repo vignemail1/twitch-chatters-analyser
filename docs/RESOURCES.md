@@ -27,18 +27,14 @@ Disk : 200 GB SSD
 
 ## Détail par Service
 
-### Services Applicatifs
+### Services Applicatifs (Configuration Actuelle : 1 Instance)
 
-#### Gateway (x2 replicas)
+#### Gateway (x1 instance)
 ```
 Par instance:
   CPU  : 0.5 vCPU (pic: 1 vCPU)
   RAM  : 256 MB (pic: 512 MB)
   Disk : Négligeable (logs uniquement)
-
-Total (2 instances):
-  CPU  : 1 vCPU (pic: 2 vCPU)
-  RAM  : 512 MB (pic: 1 GB)
 ```
 
 **Facteurs d'impact** :
@@ -46,16 +42,14 @@ Total (2 instances):
 - Sessions actives en mémoire
 - Taille des réponses JSON
 
-#### Worker (x3 replicas)
+**Capacité** : ~100-500 requêtes simultanées
+
+#### Worker (x1 instance)
 ```
 Par instance:
   CPU  : 0.3 vCPU (pic: 0.8 vCPU)
   RAM  : 256 MB (pic: 512 MB)
   Disk : Négligeable
-
-Total (3 instances):
-  CPU  : 0.9 vCPU (pic: 2.4 vCPU)
-  RAM  : 768 MB (pic: 1.5 GB)
 ```
 
 **Facteurs d'impact** :
@@ -63,22 +57,22 @@ Total (3 instances):
 - Taille des payloads (nombre de chatters)
 - Fréquence de polling
 
-#### Analysis (x2 replicas)
+**Capacité** : ~500-1000 jobs/heure
+
+#### Analysis (x1 instance)
 ```
 Par instance:
   CPU  : 0.4 vCPU (pic: 1.2 vCPU)
   RAM  : 512 MB (pic: 1 GB)
   Disk : Négligeable
-
-Total (2 instances):
-  CPU  : 0.8 vCPU (pic: 2.4 vCPU)
-  RAM  : 1 GB (pic: 2 GB)
 ```
 
 **Facteurs d'impact** :
 - Complexité des requêtes SQL d'agrégation
 - Taille des datasets (nombre de captures)
 - Cache Redis hit rate
+
+**Capacité** : ~50-100 analyses simultanées
 
 #### Twitch-API (x1 instance)
 ```
@@ -210,7 +204,51 @@ Disk : 100 MB
 
 ## Récapitulatif Global
 
-### Configuration Production (Sans Monitoring)
+### Configuration Production (Sans Monitoring) - Actuelle
+
+```
+┌───────────────────────┬───────────┬───────────┬───────────────┐
+│ Composant             │ CPU (avg) │ RAM (avg) │ Disk          │
+├───────────────────────┼───────────┼───────────┼───────────────┤
+│ Gateway (x1)          │ 0.5 vCPU  │ 256 MB    │ <10 MB        │
+│ Worker (x1)           │ 0.3 vCPU  │ 256 MB    │ <10 MB        │
+│ Analysis (x1)         │ 0.4 vCPU  │ 512 MB    │ <10 MB        │
+│ Twitch-API (x1)       │ 0.2 vCPU  │ 128 MB    │ <10 MB        │
+│ MariaDB               │ 2.0 vCPU  │ 2.5 GB    │ 10 GB + data  │
+│ Redis                 │ 0.2 vCPU  │ 256 MB    │ 100 MB        │
+│ Traefik               │ 0.3 vCPU  │ 128 MB    │ 100 MB        │
+├───────────────────────┼───────────┼───────────┼───────────────┤
+│ TOTAL                 │ 3.9 vCPU  │ 4.0 GB    │ ~12 GB        │
+│ Recommandé (marge)    │ 6 vCPU    │ 6 GB      │ 50 GB SSD     │
+└───────────────────────┴───────────┴───────────┴───────────────┘
+```
+
+**Capacité** : 100-500 utilisateurs simultanés
+
+### Configuration Production (Avec Monitoring) - Actuelle
+
+```
+┌───────────────────────┬───────────┬───────────┬───────────────┐
+│ Composant             │ CPU (avg) │ RAM (avg) │ Disk          │
+├───────────────────────┼───────────┼───────────┼───────────────┤
+│ Services App          │ 3.9 vCPU  │ 4.0 GB    │ ~12 GB        │
+│ Prometheus            │ 0.5 vCPU  │ 1 GB      │ 5 GB          │
+│ Grafana               │ 0.2 vCPU  │ 256 MB    │ 500 MB        │
+│ Loki                  │ 0.3 vCPU  │ 512 MB    │ 3 GB          │
+│ Promtail              │ 0.1 vCPU  │ 128 MB    │ <10 MB        │
+│ Exporters             │ 0.3 vCPU  │ 256 MB    │ <10 MB        │
+│ Alertmanager          │ 0.1 vCPU  │ 64 MB     │ 100 MB        │
+├───────────────────────┼───────────┼───────────┼───────────────┤
+│ TOTAL                 │ 5.4 vCPU  │ 6.2 GB    │ ~21 GB        │
+│ Recommandé (marge)    │ 8 vCPU    │ 10 GB     │ 80 GB SSD     │
+└───────────────────────┴───────────┴───────────┴───────────────┘
+```
+
+**Capacité** : 100-500 utilisateurs simultanés
+
+### Configuration Multi-Réplicas (Future)
+
+Si vous migrez vers un système multi-réplicas (voir SCALING.md) :
 
 ```
 ┌───────────────────────┬───────────┬───────────┬───────────────┐
@@ -229,28 +267,11 @@ Disk : 100 MB
 └───────────────────────┴───────────┴───────────┴───────────────┘
 ```
 
-### Configuration Production (Avec Monitoring)
-
-```
-┌───────────────────────┬───────────┬───────────┬───────────────┐
-│ Composant             │ CPU (avg) │ RAM (avg) │ Disk          │
-├───────────────────────┼───────────┼───────────┼───────────────┤
-│ Services App          │ 5.4 vCPU  │ 5.3 GB    │ ~12 GB        │
-│ Prometheus            │ 0.5 vCPU  │ 1 GB      │ 5 GB          │
-│ Grafana               │ 0.2 vCPU  │ 256 MB    │ 500 MB        │
-│ Loki                  │ 0.3 vCPU  │ 512 MB    │ 3 GB          │
-│ Promtail              │ 0.1 vCPU  │ 128 MB    │ <10 MB        │
-│ Exporters             │ 0.3 vCPU  │ 256 MB    │ <10 MB        │
-│ Alertmanager          │ 0.1 vCPU  │ 64 MB     │ 100 MB        │
-├───────────────────────┼───────────┼───────────┼───────────────┤
-│ TOTAL                 │ 6.9 vCPU  │ 7.5 GB    │ ~21 GB        │
-│ Recommandé (marge)    │ 12 vCPU   │ 12 GB     │ 80 GB SSD     │
-└───────────────────────┴───────────┴───────────┴───────────────┘
-```
+**Capacité** : 500-1000 utilisateurs simultanés
 
 ## Projections selon la Charge
 
-### Charge Faible (< 100 users actifs)
+### Charge Faible (< 100 users actifs) - Configuration Actuelle
 ```
 CPU  : 4-6 vCPU suffisants
 RAM  : 6-8 GB
@@ -261,7 +282,9 @@ Exemples VPS:
 - Hetzner CPX31: 4 vCPU, 8 GB RAM, 160 GB SSD ~ 12€/mois
 ```
 
-### Charge Moyenne (100-1000 users)
+**Capacité** : 100-500 utilisateurs simultanés
+
+### Charge Moyenne (100-1000 users) - Nécessite Multi-Réplicas
 ```
 CPU  : 8-12 vCPU
 RAM  : 12-16 GB
@@ -272,7 +295,10 @@ Exemples VPS:
 - Hetzner CPX51: 16 vCPU, 32 GB RAM, 360 GB SSD ~ 50€/mois
 ```
 
-### Charge Élevée (> 1000 users)
+**Capacité** : 500-1000 utilisateurs simultanés  
+**Prérequis** : Migrer vers multi-réplicas (voir SCALING.md)
+
+### Charge Élevée (> 1000 users) - Multi-Réplicas + HA
 ```
 CPU  : 16-32 vCPU
 RAM  : 32-64 GB
@@ -285,24 +311,12 @@ Exemples Serveurs Dédiés:
 + Envisager read replicas MariaDB
 ```
 
+**Capacité** : > 1000 utilisateurs simultanés  
+**Prérequis** : Multi-réplicas + Read replicas + HA
+
 ## Optimisations Possibles
 
 ### Réduire Consommation CPU
-
-```yaml
-# Réduire nombre de replicas (dev)
-gateway:
-  deploy:
-    replicas: 1  # Au lieu de 2
-worker:
-  deploy:
-    replicas: 1  # Au lieu de 3
-analysis:
-  deploy:
-    replicas: 1  # Au lieu de 2
-
-# Économie: ~2 vCPU
-```
 
 ```yaml
 # Réduire fréquence monitoring
@@ -315,7 +329,7 @@ prometheus:
 ### Réduire Consommation RAM
 
 ```yaml
-# Réduire buffer pool MariaDB
+# Réduire buffer pool MariaDB (pour dev uniquement)
 mariadb:
   command:
     - --innodb-buffer-pool-size=256M  # Au lieu de 512M
@@ -353,7 +367,7 @@ mariadb:
 
 ## Coûts Estimatifs Mensuels
 
-### Configuration Minimale (Dev/Test)
+### Configuration Minimale (Dev/Test) - Actuelle
 ```
 Serveur: 4 vCPU, 8 GB RAM, 80 GB SSD
 Fournisseurs:
@@ -363,9 +377,11 @@ Fournisseurs:
 - Contabo VPS L:       ~10€/mois
 
 Total: ~12€/mois
+
+Capacité: 100-500 utilisateurs simultanés
 ```
 
-### Configuration Production (100-1000 users)
+### Configuration Production (100-1000 users) - Multi-Réplicas
 ```
 Serveur: 8 vCPU, 16 GB RAM, 160 GB SSD
 Fournisseurs:
@@ -377,6 +393,8 @@ Domaines (vignemail1.eu): Gratuit (si déjà possédé)
 Certificats SSL:          Gratuit (Let's Encrypt)
 
 Total: ~25€/mois
+
+Capacité: 500-1000 utilisateurs simultanés
 ```
 
 ### Configuration Haute Performance (> 1000 users)
@@ -389,19 +407,28 @@ Fournisseurs:
 Backup (500 GB):       ~10€/mois
 
 Total: ~90€/mois
+
+Capacité: > 1000 utilisateurs simultanés
 ```
 
 ## Recommandations VPS
 
-### Pour Développement
+### Pour Développement (Configuration Actuelle)
 **Hetzner CPX21** : 3 vCPU, 4 GB RAM, 80 GB SSD - 7€/mois
 - ✅ Bon rapport qualité/prix
 - ✅ Réseau rapide (20 Gbps)
 - ⚠️ Sans monitoring (trop juste)
 
-### Pour Production (Recommandé)
+### Pour Production (Recommandé) - Configuration Actuelle
+**Hetzner CPX31** : 4 vCPU, 8 GB RAM, 160 GB SSD - 12€/mois
+- ✅ Suffisant pour 100-500 users (single instance)
+- ✅ Monitoring inclus possible
+- ✅ Réseau rapide (20 Gbps)
+- ✅ Snapshots gratuits
+
+### Pour Charge Moyenne - Multi-Réplicas
 **Hetzner CPX41** : 8 vCPU, 16 GB RAM, 240 GB SSD - 24€/mois
-- ✅ Suffisant pour 100-1000 users
+- ✅ Suffisant pour 500-1000 users (multi-réplicas)
 - ✅ Monitoring inclus
 - ✅ Réseau rapide (20 Gbps)
 - ✅ Snapshots gratuits
@@ -452,17 +479,18 @@ Dans le dashboard **Twitch Chatters - Overview**, surveiller :
 
 ### Résumé Configurations
 
-| Usage | CPU | RAM | Disk | Coût/mois |
-|-------|-----|-----|------|----------|
-| **Dev** | 4 vCPU | 8 GB | 50 GB | ~12€ |
-| **Production (100-1000 users)** | 8 vCPU | 16 GB | 80 GB | ~25€ |
-| **Haute Charge (> 1000 users)** | 16 vCPU | 32 GB | 200 GB | ~90€ |
+| Usage | CPU | RAM | Disk | Coût/mois | Capacité |
+|-------|-----|-----|------|----------|----------|
+| **Dev** | 4 vCPU | 8 GB | 50 GB | ~12€ | 100-500 users |
+| **Production (actuelle)** | 4-6 vCPU | 6-8 GB | 80 GB | ~12€ | 100-500 users |
+| **Production (multi-réplicas)** | 8 vCPU | 16 GB | 80 GB | ~25€ | 500-1000 users |
+| **Haute Charge** | 16 vCPU | 32 GB | 200 GB | ~90€ | > 1000 users |
 
 ### Scalabilité
 
-Le projet est conçu pour scaler horizontalement :
-- ✅ Ajouter des replicas (gateway, worker, analysis)
-- ✅ Ajouter des read replicas MariaDB
-- ✅ Distribuer sur plusieurs serveurs (Docker Swarm/Kubernetes)
+Le projet est conçu pour scaler :
+- ✅ **Actuel** : 1 replica par service (100-500 users)
+- 🛠️ **Futur** : Multi-réplicas (500-1000 users) - voir SCALING.md
+- 🚀 **Évolué** : Read replicas MariaDB + HA (> 1000 users)
 
-Avec la configuration actuelle, tu peux facilement supporter **500-1000 utilisateurs actifs** sur un serveur 8 vCPU / 16 GB RAM.
+Avec la configuration actuelle (single instance), tu peux supporter **100-500 utilisateurs simultanés** sur un serveur 4-6 vCPU / 6-8 GB RAM.
