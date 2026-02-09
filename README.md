@@ -98,98 +98,140 @@ direnv allow
 
 # Installer les outils (Go, Docker, etc.)
 mise install
+```
 
-# Générer les secrets pour .env
+## 🌐 Environnements (Dev / Prod)
+
+### Profils Disponibles
+
+Le projet utilise **mise** pour gérer plusieurs environnements avec des configurations séparées :
+
+| Profil | Fichier | Usage | Monitoring | Domaine |
+|--------|---------|-------|------------|----------|
+| **development** | `.env.development` | Développement local | ❌ Désactivé | `twitch-chatters-dev.vignemail1.eu` |
+| **staging** | `.env.staging` | Tests pré-prod | ✅ Activé | `twitch-chatters-staging.vignemail1.eu` |
+| **production** | `.env.production` | Production | ✅ Activé | `twitch-chatters.vignemail1.eu` |
+
+### Configuration Initiale
+
+```bash
+# 1. Générer les secrets
 mise run env-generate > secrets.txt
-cat secrets.txt
 
-# Copier .env.example et y ajouter les valeurs
-cp .env.example .env
-vim .env
+# 2. Créer les fichiers d'environnement
+cp .env.example .env.development
+cp .env.example .env.production
 
-# Vérifier que toutes les variables sont définies
-mise run env-check
+# 3. Éditer chaque fichier avec des secrets DIFFÉRENTS
+vim .env.development
+vim .env.production
+
+# 🔒 IMPORTANT: Utiliser des secrets différents pour dev et prod!
+# - Apps Twitch séparées
+# - Mots de passe MariaDB différents
+# - Secrets de session différents
 ```
 
-### Installation Manuelle
+### Utilisation des Profils
+
+#### Mode Development (par défaut)
 
 ```bash
-# Cloner le repository
-git clone https://github.com/vignemail1/twitch-chatters-analyser.git
-cd twitch-chatters-analyser
-
-# Copier la configuration
-cp .env.example .env
-
-# Générer les secrets
-echo "MYSQL_ROOT_PASSWORD=$(openssl rand -base64 32)" >> .env
-echo "MYSQL_PASSWORD=$(openssl rand -base64 32)" >> .env
-echo "APP_SESSION_SECRET=$(openssl rand -base64 32)" >> .env
-
-# Éditer .env et remplir les valeurs manquantes
-vim .env
-```
-
-### Configuration .env
-
-**⚠️ IMPORTANT** : Aucun secret n'a de valeur par défaut. Le fichier `.env` est **obligatoire**.
-
-```bash
-# Twitch OAuth (https://dev.twitch.tv/console/apps)
-TWITCH_CLIENT_ID=votre_client_id
-TWITCH_CLIENT_SECRET=votre_client_secret
-TWITCH_REDIRECT_URL=https://twitch-chatters.vignemail1.eu/auth/callback
-
-# Base de données (générer avec: openssl rand -base64 32)
-MYSQL_ROOT_PASSWORD=votre_mot_de_passe_root_fort
-MYSQL_DATABASE=twitch_chatters
-MYSQL_USER=twitch
-MYSQL_PASSWORD=votre_mot_de_passe_app_fort
-
-# Session secret (générer avec: openssl rand -base64 32)
-APP_SESSION_SECRET=votre_secret_fort
-
-# Traefik
-ACME_EMAIL=votre-email@example.com
-# Générer avec: echo $(htpasswd -nB admin) | sed -e s/\$/\$\$/g
-TRAEFIK_AUTH=admin:$$2y$$05$$...
-
-# Environnement
-APP_ENV=production
-```
-
-### DNS
-
-Configurer les enregistrements DNS :
-
-```dns
-twitch-chatters.vignemail1.eu      A    <IP_SERVEUR>
-twitch-chatters-dev.vignemail1.eu  A    <IP_SERVEUR>
-traefik.vignemail1.eu              A    <IP_SERVEUR>
-```
-
-### Démarrage
-
-```bash
-# Avec mise
-mise run up
-
-# Ou manuellement
-docker-compose up -d
-
-# Vérifier les logs
-mise run logs
+# Activer le profil development (par défaut)
+export MISE_ENV=development
 # ou
-docker-compose logs -f
+mise run env:dev
 
-# Vérifier l'état
-docker-compose ps
+# Vérifier la configuration
+mise run env-check
+# 🌐 Environnement: development
+# 🔗 Redirect URL: https://twitch-chatters-dev.vignemail1.eu/auth/callback
+# 📊 Monitoring: false
+
+# Démarrer en mode dev
+mise run up
+# 🚀 Démarrage sans monitoring (development)
+
+# Ou avec ports exposés pour debug
+mise run up:dev
 ```
 
-### Accès
+#### Mode Production
 
-- **Application** : https://twitch-chatters.vignemail1.eu
-- **Dashboard Traefik** : https://traefik.vignemail1.eu (admin/votre_mot_de_passe)
+```bash
+# Activer le profil production
+export MISE_ENV=production
+# ou
+mise run env:prod
+
+# Vérifier la configuration
+mise run env-check
+# 🌐 Environnement: production
+# 🔗 Redirect URL: https://twitch-chatters.vignemail1.eu/auth/callback
+# 📊 Monitoring: true
+
+# Démarrer en mode prod (avec monitoring)
+mise run up
+# 📊 Démarrage avec monitoring (production)
+
+# Ou utiliser la tâche dédiée
+mise run up:prod
+```
+
+#### Mode Staging
+
+```bash
+# Activer le profil staging
+export MISE_ENV=staging
+mise run env:staging
+
+# Démarrer
+mise run up
+```
+
+### Différences par Environnement
+
+#### Development
+```bash
+# .env.development
+APP_ENV=development
+LOG_LEVEL=DEBUG
+TWITCH_REDIRECT_URL=https://twitch-chatters-dev.vignemail1.eu/auth/callback
+RATE_LIMIT_REQUESTS_PER_SECOND=50  # Plus permissif
+JOB_POLL_INTERVAL=1                 # Plus rapide
+CACHE_TTL_SECONDS=30                # Cache court
+ENABLE_MONITORING=false             # Pas de monitoring
+REDIS_PORT=6379                     # Exposé pour debug
+MYSQL_PORT=3306                     # Exposé pour debug
+```
+
+#### Production
+```bash
+# .env.production
+APP_ENV=production
+LOG_LEVEL=INFO
+TWITCH_REDIRECT_URL=https://twitch-chatters.vignemail1.eu/auth/callback
+RATE_LIMIT_REQUESTS_PER_SECOND=10  # Conservateur
+JOB_POLL_INTERVAL=2                 # Standard
+CACHE_TTL_SECONDS=300               # Cache long
+ENABLE_MONITORING=true              # Monitoring actif
+REDIS_PORT=                         # Non exposé
+MYSQL_PORT=                         # Non exposé
+```
+
+### Changer de Profil
+
+```bash
+# Méthode 1: Variable d'environnement
+export MISE_ENV=production
+cd . # Recharger direnv
+
+# Méthode 2: Tâche mise
+mise run env:prod
+
+# Méthode 3: Inline
+MISE_ENV=production mise run up
+```
 
 ## 🔒 Sécurité
 
@@ -197,7 +239,8 @@ docker-compose ps
 
 **✅ Bonnes pratiques implémentées** :
 - ❌ **Aucun** mot de passe ou secret en clair dans le code
-- ✅ **Toutes** les valeurs sensibles dans `.env` (git ignored)
+- ✅ **Fichiers séparés** par environnement (`.env.development`, `.env.production`)
+- ✅ **Secrets différents** pour dev et prod (obligatoire)
 - ✅ Génération automatique des secrets forts
 - ✅ Vérification des variables requises au démarrage
 - ✅ Documentation complète dans `.env.example`
@@ -220,68 +263,103 @@ mise run env-generate
 - ✅ Sessions sécurisées (Redis)
 - ✅ Rate limiting distribué
 - ✅ Mots de passe hashés (bcrypt)
-- ✅ Base de données non exposée publiquement
+- ✅ Base de données non exposée publiquement (prod)
 
-## 🛠️ Gestion d'Environnement
+## 🛠️ Tâches mise
 
-### mise (Recommandé)
-
-[mise](https://mise.jdx.dev) est un gestionnaire d'outils et de variables d'environnement.
+### Tâches Principales
 
 ```bash
-# Configuration dans .mise.toml
-[tools]
-go = "1.25"
-docker = "latest"
-
-# Tâches disponibles
+# Lister toutes les tâches
 mise tasks
 
-# Exécuter une tâche
-mise run install    # Installer les dépendances
-mise run build      # Builder les images
-mise run up         # Démarrer les services
-mise run down       # Arrêter les services
-mise run logs       # Afficher les logs
-mise run test       # Lancer les tests
-mise run env-check  # Vérifier .env
+# Environnement
+mise run env:dev        # Activer profil development
+mise run env:prod       # Activer profil production
+mise run env:staging    # Activer profil staging
+mise run env-check      # Vérifier les variables
+mise run env-generate   # Générer secrets
+
+# Build & Deploy
+mise run install        # go mod download
+mise run build          # docker-compose build
+mise run build:nocache  # docker-compose build --no-cache
+mise run up             # Démarrer (selon profil)
+mise run up:dev         # Démarrer mode dev
+mise run up:prod        # Démarrer mode prod
+mise run down           # Arrêter
+mise run down:volumes   # Arrêter + supprimer volumes
+mise run restart        # Redémarrer
+
+# Logs & Debug
+mise run logs           # Tous les logs
+mise run logs:gateway   # Logs gateway
+mise run logs:worker    # Logs worker
+mise run logs:db        # Logs database
+mise run ps             # État des services
+
+# Tests & Qualité
+mise run test           # Tests unitaires
+mise run test:coverage  # Tests + couverture
+mise run lint           # Linter Go
+mise run lint:fix       # Linter + fix auto
+
+# Base de données
+mise run db-backup      # Backup BDD
+mise run db-restore <file.sql>  # Restaurer BDD
+mise run db-console     # Console MariaDB
+mise run redis-console  # Console Redis
+
+# Maintenance
+mise run clean          # Nettoyer fichiers temp
 ```
 
-### fnox (Alternative)
+### Exemples d'Utilisation
 
-[fnox](https://fnox.jdx.dev) est compatible avec la configuration mise.
+```bash
+# Workflow Development
+export MISE_ENV=development
+mise run env-check
+mise run build
+mise run up:dev
+mise run logs:gateway
+
+# Workflow Production
+export MISE_ENV=production
+mise run env-check
+mise run build:nocache
+mise run up:prod
+mise run logs
+
+# Backup production
+export MISE_ENV=production
+mise run db-backup
+# backup-production-20260209-143000.sql
+
+# Tester en dev avec dump prod
+export MISE_ENV=development
+mise run db-restore backup-production-20260209-143000.sql
+```
+
+## 🦞 fnox (Alternative à mise)
+
+[fnox](https://fnox.jdx.dev) est **100% compatible** avec la configuration mise :
 
 ```bash
 # Installer fnox
 cargo install --locked fnox
 
-# Utilisation identique à mise
+# Utilisation identique
+export MISE_ENV=development
+fnox install
 fnox run up
 fnox run logs
-```
-
-### direnv (Optionnel)
-
-Pour charger automatiquement `.env` en entrant dans le répertoire :
-
-```bash
-# Installer direnv
-brew install direnv  # macOS
-sudo apt install direnv  # Ubuntu
-
-# Ajouter dans ~/.bashrc ou ~/.zshrc
-eval "$(direnv hook bash)"
-# ou
-eval "$(direnv hook zsh)"
-
-# Autoriser le projet
-cd twitch-chatters-analyser
-direnv allow
+fnox run env-check
 ```
 
 ## 📊 Ressources
 
-### Configuration par Défaut (1 replica par service)
+### Configuration par Défaut (Development, 1 replica)
 
 ```
 CPU  : ~3 vCPU (moyenne)
@@ -292,34 +370,28 @@ Serveur recommandé : 4 vCPU, 8 GB RAM, 50 GB SSD
 Coût estimé : ~12€/mois (Hetzner CPX31)
 ```
 
-### Avec Monitoring (Optionnel)
+### Production avec Monitoring
 
-```bash
-# Démarrer avec monitoring
-mise run up -- -f docker-compose.monitoring.yml
-# ou
-docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
-
-# Ressources supplémentaires
-CPU  : +1.5 vCPU
-RAM  : +2 GB
-Disk : +9 GB
+```
+CPU  : ~5 vCPU
+RAM  : ~6 GB
+Disk : ~21 GB + données utilisateurs
 
 Serveur recommandé : 8 vCPU, 12 GB RAM, 80 GB SSD
+Coût estimé : ~25€/mois (Hetzner CPX41)
 ```
 
-### Scalabilité Horizontale
+### Avec Replicas (2 gateway, 3 workers, 2 analysis)
 
 ```bash
 # Augmenter les replicas (en cas de charge)
 docker-compose up -d --scale gateway=2 --scale worker=3 --scale analysis=2
 
-# Ressources avec replicas
 CPU  : ~6 vCPU
 RAM  : ~7 GB
 
 Serveur recommandé : 8 vCPU, 16 GB RAM, 80 GB SSD
-Coût estimé : ~25€/mois (Hetzner CPX41)
+Coût estimé : ~30€/mois (Hetzner CPX41)
 ```
 
 ## 📖 Documentation
@@ -343,27 +415,36 @@ Coût estimé : ~25€/mois (Hetzner CPX41)
 
 ## 🔧 Développement
 
+### Setup Initial
+
+```bash
+# 1. Cloner et installer
+git clone https://github.com/vignemail1/twitch-chatters-analyser.git
+cd twitch-chatters-analyser
+mise install
+
+# 2. Configurer development
+cp .env.example .env.development
+mise run env-generate >> .env.development
+vim .env.development  # Ajouter TWITCH_CLIENT_ID, etc.
+
+# 3. Vérifier et démarrer
+export MISE_ENV=development
+mise run env-check
+mise run up:dev
+```
+
 ### Mode Développement
 
 ```bash
-# Démarrer en mode dev (1 replica, ports exposés)
-docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+# Démarrer avec ports exposés
+mise run up:dev
 
-# Accès direct
-curl http://localhost:8080  # Gateway
-curl http://localhost:8083  # Analysis
-```
-
-### Build Local
-
-```bash
-# Builder les services
-mise run build
-# ou
-docker-compose build
-
-# Rebuild sans cache
-docker-compose build --no-cache
+# Accès direct aux services
+curl http://localhost:8080/healthz  # Gateway
+curl http://localhost:8083/healthz  # Analysis
+redis-cli -p 6379                   # Redis
+mysql -h 127.0.0.1 -P 3306 -u twitch -p  # MariaDB
 ```
 
 ### Tests
@@ -371,16 +452,13 @@ docker-compose build --no-cache
 ```bash
 # Tests unitaires
 mise run test
-# ou
-go test ./...
 
 # Tests avec couverture
-go test -cover ./...
+mise run test:coverage
 
 # Linting
 mise run lint
-# ou
-golangci-lint run
+mise run lint:fix
 ```
 
 ## 📦 Base de Données
@@ -393,30 +471,40 @@ Migrations manuelles dans `dev/migrations/` :
 
 ```bash
 # Appliquer une migration
-docker exec -i twitch-chatters-db mariadb -u root -p twitch_chatters < dev/migrations/001_limit_saved_sessions.sql
+docker exec -i twitch-chatters-db mariadb -u root -p"$MYSQL_ROOT_PASSWORD" twitch_chatters < dev/migrations/001_limit_saved_sessions.sql
 ```
 
-### Backup
+### Backup & Restore
 
 ```bash
-# Backup complet
-docker exec twitch-chatters-db mariadb-dump -u root -p twitch_chatters > backup.sql
+# Backup automatique (utilise $APP_ENV)
+mise run db-backup
+# backup-development-20260209-143000.sql
 
-# Restauration
-docker exec -i twitch-chatters-db mariadb -u root -p twitch_chatters < backup.sql
+# Restore
+mise run db-restore backup-development-20260209-143000.sql
 ```
 
 ### Accès Direct
 
 ```bash
 # Console MariaDB
-docker exec -it twitch-chatters-db mariadb -u twitch -p
+mise run db-console
 
 # Console Redis
-docker exec -it twitch-chatters-redis redis-cli
+mise run redis-console
 ```
 
-## 📊 Monitoring (Optionnel)
+## 📊 Monitoring (Production)
+
+### Activation
+
+```bash
+# Le monitoring est activé automatiquement en profil production
+export MISE_ENV=production
+mise run up
+# 📊 Démarrage avec monitoring (production)
+```
 
 ### Services Inclus
 
@@ -426,7 +514,7 @@ docker exec -it twitch-chatters-redis redis-cli
 - **Alertmanager** : Gestion alertes
 - **Exporters** : Node, cAdvisor, Redis, MySQL
 
-### Accès Monitoring
+### Accès
 
 - **Grafana** : https://grafana.vignemail1.eu (admin/admin)
 - **Prometheus** : https://prometheus.vignemail1.eu
@@ -441,51 +529,45 @@ docker exec -it twitch-chatters-redis redis-cli
 git pull
 
 # Rebuild et redémarrer
-mise run build
-mise run up
+mise run build:nocache
+mise run restart
 ```
 
 ### Nettoyage
 
 ```bash
-# Arrêter et supprimer les containers
+# Arrêter services
 mise run down
-# ou
-docker-compose down
 
-# Supprimer aussi les volumes (ATTENTION : perte de données)
-docker-compose down -v
+# Supprimer aussi les volumes (ATTENTION: perte de données)
+mise run down:volumes
 
 # Nettoyer images non utilisées
 docker system prune -a
-```
 
-### Logs
-
-```bash
-# Tous les logs
-mise run logs
-
-# Logs d'un service
-docker-compose logs -f gateway
-
-# Filtrer les erreurs
-docker-compose logs gateway | grep -i error
+# Nettoyer fichiers temp Go
+mise run clean
 ```
 
 ## 🚀 Performance
 
-### Capacité Actuelle (1 replica)
+### Capacité Actuelle (Development, 1 replica)
 
 - ✅ 100-500 utilisateurs actifs simultanés
 - ✅ 1000-5000 captures/heure
 - ✅ 10-50 requêtes HTTP/sec
 
-### Avec Replicas (2 gateway, 3 workers, 2 analysis)
+### Production avec Replicas
 
+```bash
+# 2 gateway, 3 workers, 2 analysis
+docker-compose up -d --scale gateway=2 --scale worker=3 --scale analysis=2
+
+# Capacité
 - ✅ 500-1000 utilisateurs actifs
 - ✅ 5000-20000 captures/heure
 - ✅ 50-200 requêtes HTTP/sec
+```
 
 ## 📝 Licence
 
