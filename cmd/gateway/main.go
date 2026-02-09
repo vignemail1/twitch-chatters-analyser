@@ -140,6 +140,28 @@ type AccountHistoryChange struct {
 	NewDisplayName   string
 }
 
+// responseWriter wraps http.ResponseWriter to capture status code
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	written    bool
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	if !rw.written {
+		rw.statusCode = code
+		rw.written = true
+		rw.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	if !rw.written {
+		rw.WriteHeader(http.StatusOK)
+	}
+	return rw.ResponseWriter.Write(b)
+}
+
 func main() {
 	port := getenv("APP_PORT", "8080")
 
@@ -295,8 +317,23 @@ func (a *App) handleIndex(w http.ResponseWriter, r *http.Request) {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
-		log.Printf("%s %s from %s in %s", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start))
+		
+		// Wrap the ResponseWriter to capture status code
+		wrapped := &responseWriter{
+			ResponseWriter: w,
+			statusCode:     200, // default status
+			written:        false,
+		}
+		
+		next.ServeHTTP(wrapped, r)
+		
+		log.Printf("%d %s %s from %s in %s",
+			wrapped.statusCode,
+			r.Method,
+			r.URL.Path,
+			r.RemoteAddr,
+			time.Since(start),
+		)
 	})
 }
 
