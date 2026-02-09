@@ -1,0 +1,137 @@
+groups:
+  - name: infrastructure
+    interval: 30s
+    rules:
+      # Alertes système
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU usage is above 80% (instance {{ $labels.instance }})"
+          description: "CPU usage is {{ $value }}%"
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memory usage is above 85% (instance {{ $labels.instance }})"
+          description: "Memory usage is {{ $value }}%"
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disk space is below 15% (instance {{ $labels.instance }})"
+          description: "Disk space remaining: {{ $value }}%"
+
+  - name: containers
+    interval: 30s
+    rules:
+      # Alertes Docker
+      - alert: ContainerDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Container {{ $labels.job }} is down"
+          description: "Container has been down for more than 2 minutes"
+
+      - alert: ContainerHighCPU
+        expr: rate(container_cpu_usage_seconds_total{name=~"twitch-chatters.*"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} CPU usage is high"
+          description: "CPU usage is {{ $value }}%"
+
+      - alert: ContainerHighMemory
+        expr: (container_memory_usage_bytes{name=~"twitch-chatters.*"} / container_spec_memory_limit_bytes{name=~"twitch-chatters.*"}) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Container {{ $labels.name }} memory usage is high"
+          description: "Memory usage is {{ $value }}%"
+
+  - name: database
+    interval: 30s
+    rules:
+      # Alertes MySQL
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "MySQL is down"
+          description: "MySQL database is not responding"
+
+      - alert: MySQLTooManyConnections
+        expr: (mysql_global_status_threads_connected / mysql_global_variables_max_connections) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MySQL has too many connections"
+          description: "MySQL connections usage is {{ $value }}%"
+
+      - alert: MySQLSlowQueries
+        expr: rate(mysql_global_status_slow_queries[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MySQL has slow queries"
+          description: "{{ $value }} slow queries per second"
+
+  - name: redis
+    interval: 30s
+    rules:
+      # Alertes Redis
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Redis is down"
+          description: "Redis is not responding"
+
+      - alert: RedisHighMemory
+        expr: (redis_memory_used_bytes / redis_memory_max_bytes) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis memory usage is high"
+          description: "Redis memory usage is {{ $value }}%"
+
+      - alert: RedisRejectedConnections
+        expr: rate(redis_rejected_connections_total[5m]) > 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Redis is rejecting connections"
+          description: "{{ $value }} connections rejected per second"
+
+  - name: application
+    interval: 30s
+    rules:
+      # Alertes applicatives (si métriques custom implémentées)
+      - alert: HighJobQueueSize
+        expr: sum(mysql_global_status_questions{job="mysql"}) > 100
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Job queue is too large"
+          description: "More than 100 pending jobs for 10 minutes"
