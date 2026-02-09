@@ -30,7 +30,7 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 │  │                                                                                            │  │
 │  │                 ┌─────────────────────────────────────────┐                     │  │
 │  │                 │         Backend Network              │                     │  │
-│  │                 └─────────────────┬────────────────────────┘                     │  │
+│  │                 └────────────────┬────────────────────────┘                     │  │
 │  │                                  │                                                 │  │
 │  │                     ┌────────────┼────────────┐                                   │  │
 │  │                     │             │            │                                   │  │
@@ -65,9 +65,10 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 - **Backend** : Go 1.25
 - **Base de données** : MariaDB 11.2
 - **Cache** : Redis 7
-- **Reverse Proxy** : Traefik v3.2
+- **Reverse Proxy** : Traefik v3.6
 - **Containerisation** : Docker + Docker Compose
 - **TLS** : Let's Encrypt (automatique)
+- **Gestion d'environnement** : mise / fnox
 
 ## 🚀 Quick Start
 
@@ -76,9 +77,41 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 - Docker 24+
 - Docker Compose v2+
 - Go 1.25+ (pour développement)
+- [mise](https://mise.jdx.dev) ou [fnox](https://fnox.jdx.dev) (recommandé)
 - Compte Twitch Developer (OAuth app)
 
-### Installation
+### Installation avec mise/fnox (Recommandé)
+
+```bash
+# Installer mise (https://mise.jdx.dev/getting-started.html)
+curl https://mise.run | sh
+
+# Ou installer fnox (https://fnox.jdx.dev)
+cargo install --locked fnox
+
+# Cloner le repository
+git clone https://github.com/vignemail1/twitch-chatters-analyser.git
+cd twitch-chatters-analyser
+
+# Activer direnv (optionnel mais recommandé)
+direnv allow
+
+# Installer les outils (Go, Docker, etc.)
+mise install
+
+# Générer les secrets pour .env
+mise run env-generate > secrets.txt
+cat secrets.txt
+
+# Copier .env.example et y ajouter les valeurs
+cp .env.example .env
+vim .env
+
+# Vérifier que toutes les variables sont définies
+mise run env-check
+```
+
+### Installation Manuelle
 
 ```bash
 # Cloner le repository
@@ -88,29 +121,41 @@ cd twitch-chatters-analyser
 # Copier la configuration
 cp .env.example .env
 
-# Éditer les variables d'environnement
+# Générer les secrets
+echo "MYSQL_ROOT_PASSWORD=$(openssl rand -base64 32)" >> .env
+echo "MYSQL_PASSWORD=$(openssl rand -base64 32)" >> .env
+echo "APP_SESSION_SECRET=$(openssl rand -base64 32)" >> .env
+
+# Éditer .env et remplir les valeurs manquantes
 vim .env
 ```
 
-### Configuration
+### Configuration .env
 
-Dans `.env`, configurer :
+**⚠️ IMPORTANT** : Aucun secret n'a de valeur par défaut. Le fichier `.env` est **obligatoire**.
 
 ```bash
-# Twitch OAuth
+# Twitch OAuth (https://dev.twitch.tv/console/apps)
 TWITCH_CLIENT_ID=votre_client_id
 TWITCH_CLIENT_SECRET=votre_client_secret
 TWITCH_REDIRECT_URL=https://twitch-chatters.vignemail1.eu/auth/callback
 
-# Base de données
-MYSQL_ROOT_PASSWORD=votre_mot_de_passe_root
-MYSQL_PASSWORD=votre_mot_de_passe_app
+# Base de données (générer avec: openssl rand -base64 32)
+MYSQL_ROOT_PASSWORD=votre_mot_de_passe_root_fort
+MYSQL_DATABASE=twitch_chatters
+MYSQL_USER=twitch
+MYSQL_PASSWORD=votre_mot_de_passe_app_fort
 
-# Session secret
-APP_SESSION_SECRET=$(openssl rand -base64 32)
+# Session secret (générer avec: openssl rand -base64 32)
+APP_SESSION_SECRET=votre_secret_fort
 
-# Email Let's Encrypt
+# Traefik
 ACME_EMAIL=votre-email@example.com
+# Générer avec: echo $(htpasswd -nB admin) | sed -e s/\$/\$\$/g
+TRAEFIK_AUTH=admin:$$2y$$05$$...
+
+# Environnement
+APP_ENV=production
 ```
 
 ### DNS
@@ -126,10 +171,15 @@ traefik.vignemail1.eu              A    <IP_SERVEUR>
 ### Démarrage
 
 ```bash
-# Démarrer tous les services
+# Avec mise
+mise run up
+
+# Ou manuellement
 docker-compose up -d
 
 # Vérifier les logs
+mise run logs
+# ou
 docker-compose logs -f
 
 # Vérifier l'état
@@ -139,7 +189,95 @@ docker-compose ps
 ### Accès
 
 - **Application** : https://twitch-chatters.vignemail1.eu
-- **Dashboard Traefik** : https://traefik.vignemail1.eu (admin/changeme)
+- **Dashboard Traefik** : https://traefik.vignemail1.eu (admin/votre_mot_de_passe)
+
+## 🔒 Sécurité
+
+### Gestion des Secrets
+
+**✅ Bonnes pratiques implémentées** :
+- ❌ **Aucun** mot de passe ou secret en clair dans le code
+- ✅ **Toutes** les valeurs sensibles dans `.env` (git ignored)
+- ✅ Génération automatique des secrets forts
+- ✅ Vérification des variables requises au démarrage
+- ✅ Documentation complète dans `.env.example`
+
+### Variables Requises
+
+```bash
+# Vérifier que toutes les variables sont définies
+mise run env-check
+
+# Générer des secrets forts automatiquement
+mise run env-generate
+```
+
+### Sécurité Infrastructure
+
+- ✅ TLS automatique via Let's Encrypt
+- ✅ Redirection HTTP → HTTPS
+- ✅ OAuth Twitch pour authentification
+- ✅ Sessions sécurisées (Redis)
+- ✅ Rate limiting distribué
+- ✅ Mots de passe hashés (bcrypt)
+- ✅ Base de données non exposée publiquement
+
+## 🛠️ Gestion d'Environnement
+
+### mise (Recommandé)
+
+[mise](https://mise.jdx.dev) est un gestionnaire d'outils et de variables d'environnement.
+
+```bash
+# Configuration dans .mise.toml
+[tools]
+go = "1.25"
+docker = "latest"
+
+# Tâches disponibles
+mise tasks
+
+# Exécuter une tâche
+mise run install    # Installer les dépendances
+mise run build      # Builder les images
+mise run up         # Démarrer les services
+mise run down       # Arrêter les services
+mise run logs       # Afficher les logs
+mise run test       # Lancer les tests
+mise run env-check  # Vérifier .env
+```
+
+### fnox (Alternative)
+
+[fnox](https://fnox.jdx.dev) est compatible avec la configuration mise.
+
+```bash
+# Installer fnox
+cargo install --locked fnox
+
+# Utilisation identique à mise
+fnox run up
+fnox run logs
+```
+
+### direnv (Optionnel)
+
+Pour charger automatiquement `.env` en entrant dans le répertoire :
+
+```bash
+# Installer direnv
+brew install direnv  # macOS
+sudo apt install direnv  # Ubuntu
+
+# Ajouter dans ~/.bashrc ou ~/.zshrc
+eval "$(direnv hook bash)"
+# ou
+eval "$(direnv hook zsh)"
+
+# Autoriser le projet
+cd twitch-chatters-analyser
+direnv allow
+```
 
 ## 📊 Ressources
 
@@ -158,6 +296,8 @@ Coût estimé : ~12€/mois (Hetzner CPX31)
 
 ```bash
 # Démarrer avec monitoring
+mise run up -- -f docker-compose.monitoring.yml
+# ou
 docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 
 # Ressources supplémentaires
@@ -190,6 +330,7 @@ Coût estimé : ~25€/mois (Hetzner CPX41)
 - [**TRAEFIK.md**](docs/TRAEFIK.md) : Configuration Traefik et TLS
 - [**MONITORING.md**](docs/MONITORING.md) : Stack de monitoring (Prometheus, Grafana, Loki)
 - [**RESOURCES.md**](docs/RESOURCES.md) : Besoins en ressources et coûts
+- [**DATABASE.md**](docs/DATABASE.md) : Structure BDD et migrations
 
 ### Architecture
 
@@ -217,10 +358,9 @@ curl http://localhost:8083  # Analysis
 
 ```bash
 # Builder les services
+mise run build
+# ou
 docker-compose build
-
-# Ou builder un service spécifique
-docker-compose build gateway
 
 # Rebuild sans cache
 docker-compose build --no-cache
@@ -230,12 +370,16 @@ docker-compose build --no-cache
 
 ```bash
 # Tests unitaires
+mise run test
+# ou
 go test ./...
 
 # Tests avec couverture
 go test -cover ./...
 
 # Linting
+mise run lint
+# ou
 golangci-lint run
 ```
 
@@ -244,6 +388,13 @@ golangci-lint run
 ### Migrations
 
 Le schéma est initialisé automatiquement au démarrage via `dev/schema.sql`.
+
+Migrations manuelles dans `dev/migrations/` :
+
+```bash
+# Appliquer une migration
+docker exec -i twitch-chatters-db mariadb -u root -p twitch_chatters < dev/migrations/001_limit_saved_sessions.sql
+```
 
 ### Backup
 
@@ -264,16 +415,6 @@ docker exec -it twitch-chatters-db mariadb -u twitch -p
 # Console Redis
 docker exec -it twitch-chatters-redis redis-cli
 ```
-
-## 🔒 Sécurité
-
-- ✅ TLS automatique via Let's Encrypt
-- ✅ Redirection HTTP → HTTPS
-- ✅ OAuth Twitch pour authentification
-- ✅ Sessions sécurisées (Redis)
-- ✅ Rate limiting distribué
-- ✅ Mots de passe hashés (bcrypt)
-- ✅ Secrets en variables d'environnement
 
 ## 📊 Monitoring (Optionnel)
 
@@ -300,14 +441,16 @@ docker exec -it twitch-chatters-redis redis-cli
 git pull
 
 # Rebuild et redémarrer
-docker-compose build
-docker-compose up -d
+mise run build
+mise run up
 ```
 
 ### Nettoyage
 
 ```bash
 # Arrêter et supprimer les containers
+mise run down
+# ou
 docker-compose down
 
 # Supprimer aussi les volumes (ATTENTION : perte de données)
@@ -321,7 +464,7 @@ docker system prune -a
 
 ```bash
 # Tous les logs
-docker-compose logs -f
+mise run logs
 
 # Logs d'un service
 docker-compose logs -f gateway
