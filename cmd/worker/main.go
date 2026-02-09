@@ -44,6 +44,7 @@ type FetchUsersInfoPayload struct {
 	SessionID int64    `json:"session_id"`
 	UserIDs   []string `json:"user_ids"`
 }
+
 type helixUser struct {
 	ID             string `json:"id"`
 	Login          string `json:"login"`
@@ -165,7 +166,6 @@ WHERE id = ?`, job.ID); err != nil {
 		log.Printf("markJobDone error for job %d: %v", job.ID, err)
 	}
 	return nil
-
 }
 
 func markJobDone(db *sql.DB, jobID int64, errorMsg string) error {
@@ -351,6 +351,7 @@ VALUES (?, ?)
 	}
 
 	log.Printf("[STORE_CAPTURE] capture_id=%d session_id=%d chatters=%d", captureID, payload.SessionID, len(chatters))
+
 	// Créer un job FETCH_USERS_INFO pour enrichir les comptes
 	if len(chatters) > 0 {
 		payload := map[string]interface{}{
@@ -495,48 +496,51 @@ func upsertTwitchUsers(ctx context.Context, db *sql.DB, users []helixUser) error
 		_ = tx.Rollback()
 	}()
 
-	stmt, err := tx.PrepareContext(ctx, `
-INSERT INTO twitch_users (twitch_user_id, login, display_name, created_at, broadcaster_type, type, view_count, last_fetched_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-ON DUPLICATE KEY UPDATE
-  login = VALUES(login),
-  display_name = VALUES(display_name),
-  created_at = VALUES(created_at),
-  broadcaster_type = VALUES(broadcaster_type),
-  type = VALUES(type),
-  view_count = VALUES(view_count),
-  last_fetched_at = VALUES(last_fetched_at)
-`)
-	if err != nil {
-		return err
-	}
-	defer stmt.Close()
-
-	// Track name changes
+	// Pour chaque utilisateur, vérifier s'il existe déjà et si son nom a changé
 	for _, u := range users {
-		// Check if name changed
+		// Récupérer l'ancien login et display_name s'ils existent
 		var oldLogin, oldDisplayName sql.NullString
 		err := tx.QueryRowContext(ctx,
 			`SELECT login, display_name FROM twitch_users WHERE twitch_user_id = ?`,
 			u.ID,
 		).Scan(&oldLogin, &oldDisplayName)
-		
+
+		// Si l'utilisateur existe ET que son nom a changé
 		if err == nil && oldLogin.Valid {
-			// User exists, check for changes
-			if oldLogin.String != u.Login || oldDisplayName.String != u.DisplayName {
-				// Name changed, log it
-				_, _ = tx.ExecContext(ctx, `
-INSERT INTO twitch_user_names (twitch_user_id, login, display_name, detected_at)
-VALUES (?, ?, ?, NOW(6))
-`, u.ID, u.Login, u.DisplayName)
-				log.Printf("[NAME_CHANGE] user_id=%s old_login=%s new_login=%s old_display=%s new_display=%s",
-					u.ID, oldLogin.String, u.Login, oldDisplayName.String, u.DisplayName)
+			loginChanged := oldLogin.String != u.Login
+			displayNameChanged := oldDisplayName.String != u.DisplayName
+
+			if loginChanged || displayNameChanged {
+				// Enregistrer le changement de nom dans twitch_user_names
+				_, err := tx.ExecContext(ctx, `
+INSERT INTO twitch_user_names (
+    twitch_user_id, 
+    old_login, 
+    new_login, 
+    old_display_name, 
+    new_display_name, 
+    changed_at
+)
+VALUES (?, ?, ?, ?, ?, NOW(6))
+`,
+					u.ID,
+					oldLogin.String,
+					u.Login,
+					oldDisplayName.String,
+					u.DisplayName,
+				)
+				if err != nil {
+					log.Printf("[NAME_CHANGE_ERROR] failed to insert name change for user %s: %v", u.ID, err)
+				} else {
+					log.Printf("[NAME_CHANGE] ✅ user_id=%s | login: %s → %s | display: %s → %s",
+						u.ID, oldLogin.String, u.Login, oldDisplayName.String, u.DisplayName)
+				}
 			}
 		}
 
+		// Parser la date de création
 		var createdAt *time.Time
 		if u.CreatedAt != "" {
-			// created_at est renvoyé en ISO 8601, qu'on peut parser en time.Time
 			t, err := time.Parse(time.RFC3339, u.CreatedAt)
 			if err == nil {
 				createdAt = &t
@@ -549,7 +553,28 @@ VALUES (?, ?, ?, NOW(6))
 			createdAtVal = nil
 		}
 
-		if _, err := stmt.ExecContext(ctx,
+		// Upsert dans twitch_users
+		_, err = tx.ExecContext(ctx, `
+INSERT INTO twitch_users (
+    twitch_user_id, 
+    login, 
+    display_name, 
+    created_at, 
+    broadcaster_type, 
+    type, 
+    view_count, 
+    last_fetched_at
+)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+ON DUPLICATE KEY UPDATE
+    login = VALUES(login),
+    display_name = VALUES(display_name),
+    created_at = COALESCE(VALUES(created_at), created_at),
+    broadcaster_type = VALUES(broadcaster_type),
+    type = VALUES(type),
+    view_count = VALUES(view_count),
+    last_fetched_at = VALUES(last_fetched_at)
+`,
 			u.ID,
 			u.Login,
 			u.DisplayName,
@@ -558,7 +583,8 @@ VALUES (?, ?, ?, NOW(6))
 			u.Type,
 			u.ViewCount,
 			now,
-		); err != nil {
+		)
+		if err != nil {
 			return err
 		}
 	}
