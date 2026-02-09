@@ -1,5 +1,9 @@
 # Fichiers de configuration sensibles
 .env
+.env.*
+!.env.example
+!.env.development
+!.env.production
 .env.local
 .env.*.local
 
@@ -15,6 +19,7 @@ bin/
 *.test
 *.out
 coverage.txt
+coverage.out
 
 # Go workspace
 go.work
@@ -35,6 +40,7 @@ go.work.sum
 *.bak
 *.sql
 backup/
+backup-*.sql
 
 # Certificats
 *.pem
@@ -46,3 +52,6 @@ backup/
 
 # Direnv
 .envrc.local
+
+# Secrets temporaires
+secrets.txt
