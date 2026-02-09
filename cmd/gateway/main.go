@@ -88,15 +88,24 @@ type Broadcaster struct {
 	CaptureCount     int64  `json:"capture_count"`
 }
 
+type SuspiciousAccount struct {
+	TwitchUserID string `json:"twitch_user_id"`
+	Login        string `json:"login"`
+	DisplayName  string `json:"display_name"`
+	RenameCount  int64  `json:"rename_count"`
+}
+
 type AnalysisSummary struct {
-	SessionUUID   string        `json:"session_uuid"`
-	TotalAccounts int64         `json:"total_accounts"`
-	TopDays       []struct {
+	SessionUUID             string              `json:"session_uuid"`
+	TotalAccounts           int64               `json:"total_accounts"`
+	TopDays                 []struct {
 		Date  string `json:"date"`
 		Count int64  `json:"count"`
 	} `json:"top_days"`
-	Broadcasters []Broadcaster `json:"broadcasters"`
-	GeneratedAt  time.Time     `json:"generated_at"`
+	Broadcasters            []Broadcaster       `json:"broadcasters"`
+	SuspiciousRenamesCount  int64               `json:"suspicious_renames_count"`
+	SuspiciousAccounts      []SuspiciousAccount `json:"suspicious_accounts"`
+	GeneratedAt             time.Time           `json:"generated_at"`
 }
 
 type SavedSession struct {
