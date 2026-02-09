@@ -1,21 +1,21 @@
 services:
   db:
-    image: mysql:8.0
+    image: mariadb:11.2
     container_name: twitch-chatters-db
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-twitch_chatters}
-      MYSQL_USER: ${MYSQL_USER:-twitch}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-twitchpass}
-    command: [ "--default-authentication-plugin=mysql_native_password", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci" ]
+      MARIADB_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+      MARIADB_DATABASE: ${MYSQL_DATABASE:-twitch_chatters}
+      MARIADB_USER: ${MYSQL_USER:-twitch}
+      MARIADB_PASSWORD: ${MYSQL_PASSWORD:-twitchpass}
+    command: [ "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci" ]
     volumes:
     - db_data:/var/lib/mysql
     - ./dev/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
     networks:
     - backend
     healthcheck:
-      test: [ "CMD-SHELL", "mysqladmin ping -h localhost -u $$MYSQL_USER -p$$MYSQL_PASSWORD --silent" ]
+      test: [ "CMD-SHELL", "healthcheck.sh --connect --innodb_initialized" ]
       interval: 10s
       timeout: 5s
       retries: 5
