@@ -7,6 +7,9 @@ go = "1.25"
 node = "22"
 python = "3.12"
 
+# Installer fnox via mise pour la gestion des secrets
+"cargo:fnox" = "latest"
+
 [env]
 # Variables techniques (pas de secrets)
 COMPOSE_PROJECT_NAME = "twitch-chatters-analyser"
@@ -218,9 +221,9 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
   done
   echo ""
   echo "📝 Actions possibles :"
-  echo "  1. Copier .env.example vers .env.$APP_ENV"
-  echo "  2. Générer les secrets: mise run env-generate"
-  echo "  3. Remplir les valeurs manquantes"
+  echo "  1. Utiliser fnox: mise run secrets:init"
+  echo "  2. Ou générer manuellement: mise run env-generate"
+  echo "  3. Copier les valeurs dans .env.$APP_ENV"
   exit 1
 fi
 
@@ -231,7 +234,7 @@ echo "📊 Monitoring: $ENABLE_MONITORING"
 """
 
 [tasks.env-generate]
-description = "Générer les secrets pour .env"
+description = "Générer les secrets pour .env (alternatif à fnox)"
 run = """
 #!/usr/bin/env bash
 set -e
@@ -239,6 +242,9 @@ set -e
 echo "# ======================================"
 echo "# Secrets générés automatiquement"
 echo "# ======================================"
+echo ""
+echo "🔒 Note: Utilisez fnox pour une gestion avancée des secrets"
+echo "📝 Commande: mise run secrets:init"
 echo ""
 
 echo "# MySQL Root Password"
@@ -267,14 +273,48 @@ echo "📝 Copier ces valeurs dans .env.development et .env.production"
 echo "🔒 Utiliser des secrets différents pour dev et prod!"
 """
 
+[tasks."secrets:init"]
+description = "Initialiser fnox pour la gestion des secrets"
+run = """
+#!/usr/bin/env bash
+set -e
+
+echo "🔐 Initialisation de fnox pour la gestion des secrets"
+echo ""
+
+if ! command -v fnox &> /dev/null; then
+  echo "❌ fnox n'est pas installé"
+  echo "📝 Installation via mise..."
+  mise install cargo:fnox
+  echo ""
+fi
+
+echo "✅ fnox est installé"
+echo ""
+echo "📖 Documentation fnox: https://fnox.jdx.dev"
+echo ""
+echo "Commandes utiles:"
+echo "  fnox set <KEY> <VALUE>      # Ajouter un secret"
+echo "  fnox get <KEY>              # Récupérer un secret"
+echo "  fnox list                   # Lister les secrets"
+echo "  fnox delete <KEY>           # Supprimer un secret"
+echo ""
+echo "Exemple:"
+echo "  fnox set MYSQL_ROOT_PASSWORD \$(openssl rand -base64 32)"
+echo "  fnox set TWITCH_CLIENT_ID your_client_id"
+echo ""
+echo "🔒 Les secrets fnox sont stockés de manière sécurisée"
+echo "📝 Ils peuvent être injectés dans .env.$APP_ENV"
+"""
+
 [tasks."env:dev"]
 description = "Activer le profil development"
 run = """
 #!/usr/bin/env bash
 echo "🛠️  Activation du profil DEVELOPMENT"
-export MISE_ENV=development
-mise trust
-eval "$(mise activate bash)"
+echo "export MISE_ENV=development" > .envrc.local
+echo "✅ Profil development activé"
+echo "🔄 Exécuter: eval \"\$(mise activate bash)\""
 """
 
 [tasks."env:prod"]
@@ -282,9 +322,9 @@ description = "Activer le profil production"
 run = """
 #!/usr/bin/env bash
 echo "🚀 Activation du profil PRODUCTION"
-export MISE_ENV=production
-mise trust
-eval "$(mise activate bash)"
+echo "export MISE_ENV=production" > .envrc.local
+echo "✅ Profil production activé"
+echo "🔄 Exécuter: eval \"\$(mise activate bash)\""
 """
 
 [tasks."env:staging"]
@@ -292,9 +332,48 @@ description = "Activer le profil staging"
 run = """
 #!/usr/bin/env bash
 echo "🧪 Activation du profil STAGING"
-export MISE_ENV=staging
-mise trust
-eval "$(mise activate bash)"
+echo "export MISE_ENV=staging" > .envrc.local
+echo "✅ Profil staging activé"
+echo "🔄 Exécuter: eval \"\$(mise activate bash)\""
+"""
+
+[tasks."dns:check"]
+description = "Vérifier la configuration DNS"
+run = """
+#!/usr/bin/env bash
+set -e
+
+echo "🌐 Vérification de la configuration DNS"
+echo ""
+echo "Environnement: $APP_ENV"
+echo ""
+
+DOMAINS=(
+  "twitch-chatters.vignemail1.eu"
+  "twitch-chatters-dev.vignemail1.eu"
+  "traefik.vignemail1.eu"
+)
+
+if [ "$ENABLE_MONITORING" = "true" ]; then
+  DOMAINS+=(
+    "grafana.vignemail1.eu"
+    "prometheus.vignemail1.eu"
+    "alerts.vignemail1.eu"
+  )
+fi
+
+for domain in "${DOMAINS[@]}"; do
+  echo -n "· $domain ... "
+  if host "$domain" > /dev/null 2>&1; then
+    IP=$(host "$domain" | grep -oP '(?<=has address )\S+' | head -n1)
+    echo "✅ $IP"
+  else
+    echo "❌ Non configuré"
+  fi
+done
+
+echo ""
+echo "📝 Pour configurer les DNS, voir le README.md (section DNS)"
 """
 
 [tasks.db-backup]
