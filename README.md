@@ -68,7 +68,8 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 - **Reverse Proxy** : Traefik v3.6
 - **Containerisation** : Docker + Docker Compose
 - **TLS** : Let's Encrypt (automatique)
-- **Gestion d'environnement** : mise / fnox
+- **Gestion d'environnement** : **mise** (outils + variables)
+- **Gestion des secrets** : **fnox** (stockage sécurisé)
 
 ## 🚀 Quick Start
 
@@ -77,34 +78,115 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 - Docker 24+
 - Docker Compose v2+
 - Go 1.25+ (pour développement)
-- [mise](https://mise.jdx.dev) ou [fnox](https://fnox.jdx.dev) (recommandé)
+- [mise](https://mise.jdx.dev) (gestion environnement)
 - Compte Twitch Developer (OAuth app)
 
-### Installation avec mise/fnox (Recommandé)
+### Installation
 
 ```bash
-# Installer mise (https://mise.jdx.dev/getting-started.html)
+# 1. Installer mise (https://mise.jdx.dev/getting-started.html)
 curl https://mise.run | sh
 
-# Ou installer fnox (https://fnox.jdx.dev)
-cargo install --locked fnox
-
-# Cloner le repository
+# 2. Cloner le repository
 git clone https://github.com/vignemail1/twitch-chatters-analyser.git
 cd twitch-chatters-analyser
 
-# Activer direnv (optionnel mais recommandé)
-direnv allow
-
-# Installer les outils (Go, Docker, etc.)
+# 3. Installer les outils (Go, Node, Python, fnox)
 mise install
+
+# 4. Activer mise dans votre shell
+eval "$(mise activate bash)"  # ou zsh, fish
 ```
+
+## 🌐 Configuration DNS
+
+### Enregistrements DNS à Configurer
+
+Avant de démarrer, configurez les enregistrements DNS suivants :
+
+#### Production
+
+| Domaine | Type | Valeur | Usage |
+|---------|------|--------|-------|
+| `twitch-chatters.vignemail1.eu` | A | `<IP_SERVEUR>` | Application principale |
+| `traefik.vignemail1.eu` | A | `<IP_SERVEUR>` | Dashboard Traefik |
+| `grafana.vignemail1.eu` | A | `<IP_SERVEUR>` | Monitoring Grafana |
+| `prometheus.vignemail1.eu` | A | `<IP_SERVEUR>` | Métriques Prometheus |
+| `alerts.vignemail1.eu` | A | `<IP_SERVEUR>` | Alertmanager |
+
+#### Development
+
+| Domaine | Type | Valeur | Usage |
+|---------|------|--------|-------|
+| `twitch-chatters-dev.vignemail1.eu` | A | `<IP_SERVEUR_DEV>` | Application dev |
+
+#### Staging (Optionnel)
+
+| Domaine | Type | Valeur | Usage |
+|---------|------|--------|-------|
+| `twitch-chatters-staging.vignemail1.eu` | A | `<IP_SERVEUR_STAGING>` | Application staging |
+
+### Exemple de Configuration DNS (Cloudflare, OVH, etc.)
+
+```dns
+# Production
+twitch-chatters     IN  A  51.178.95.123
+traefik             IN  A  51.178.95.123
+grafana             IN  A  51.178.95.123
+prometheus          IN  A  51.178.95.123
+alerts              IN  A  51.178.95.123
+
+# Development (peut être le même serveur)
+twitch-chatters-dev IN  A  51.178.95.123
+```
+
+### Vérification DNS
+
+```bash
+# Vérifier que les DNS sont propagés
+dig +short twitch-chatters.vignemail1.eu
+# 51.178.95.123
+
+nslookup traefik.vignemail1.eu
+# Server: 8.8.8.8
+# Address: 8.8.8.8#53
+# Name: traefik.vignemail1.eu
+# Address: 51.178.95.123
+```
+
+**⚠️ Important** : Attendre que les DNS soient propagés (5-30 minutes) avant de lancer l'application pour que Let's Encrypt puisse générer les certificats TLS.
 
 ## 🌐 Environnements (Dev / Prod)
 
-### Profils Disponibles
+### Architecture mise + fnox
 
-Le projet utilise **mise** pour gérer plusieurs environnements avec des configurations séparées :
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  mise (https://mise.jdx.dev)                                                 │
+│  │                                                                           │
+│  ├── Gestion des outils (Go, Node, Python)                                  │
+│  ├── Gestion des profils (development, staging, production)                │
+│  ├── Variables d'environnement par profil                                  │
+│  └── Tâches automatisées (build, up, logs, etc.)                          │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│                                                                              │
+│  fnox (https://fnox.jdx.dev)                                                 │
+│  │                                                                           │
+│  ├── Stockage sécurisé des secrets                                           │
+│  ├── Secrets par environnement (dev, staging, prod)                         │
+│  ├── Injection automatique dans l'environnement                             │
+│  └── Pas de secrets en clair dans les fichiers                              │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**mise** gère l'environnement, **fnox** gère les secrets de manière sécurisée.
+
+### Profils Disponibles
 
 | Profil | Fichier | Usage | Monitoring | Domaine |
 |--------|---------|-------|------------|----------|
@@ -112,24 +194,52 @@ Le projet utilise **mise** pour gérer plusieurs environnements avec des configu
 | **staging** | `.env.staging` | Tests pré-prod | ✅ Activé | `twitch-chatters-staging.vignemail1.eu` |
 | **production** | `.env.production` | Production | ✅ Activé | `twitch-chatters.vignemail1.eu` |
 
-### Configuration Initiale
+### Configuration avec fnox (Recommandé)
+
+```bash
+# 1. Définir les secrets pour development
+fnox secret set development TWITCH_CLIENT_ID
+# Prompt: Enter value for TWITCH_CLIENT_ID: ***
+
+fnox secret set development TWITCH_CLIENT_SECRET
+fnox secret set development MYSQL_ROOT_PASSWORD
+fnox secret set development MYSQL_PASSWORD
+fnox secret set development APP_SESSION_SECRET
+fnox secret set development TRAEFIK_AUTH
+fnox secret set development ACME_EMAIL
+
+# 2. Répéter pour production (secrets DIFFÉRENTS!)
+fnox secret set production TWITCH_CLIENT_ID
+fnox secret set production TWITCH_CLIENT_SECRET
+# etc.
+
+# 3. Lister les secrets
+fnox secrets list
+# development:
+#   - TWITCH_CLIENT_ID
+#   - TWITCH_CLIENT_SECRET
+#   - MYSQL_ROOT_PASSWORD
+#   ...
+
+# 4. Exporter vers .env (optionnel)
+fnox secrets export development > .env.development
+fnox secrets export production > .env.production
+```
+
+### Configuration Alternative (sans fnox)
 
 ```bash
 # 1. Générer les secrets
-mise run env-generate > secrets.txt
+mise run secrets:generate > secrets.txt
+cat secrets.txt
 
-# 2. Créer les fichiers d'environnement
+# 2. Créer les fichiers .env
 cp .env.example .env.development
 cp .env.example .env.production
 
-# 3. Éditer chaque fichier avec des secrets DIFFÉRENTS
+# 3. Éditer avec des secrets DIFFÉRENTS
 vim .env.development
 vim .env.production
-
-# 🔒 IMPORTANT: Utiliser des secrets différents pour dev et prod!
-# - Apps Twitch séparées
-# - Mots de passe MariaDB différents
-# - Secrets de session différents
 ```
 
 ### Utilisation des Profils
@@ -137,7 +247,7 @@ vim .env.production
 #### Mode Development (par défaut)
 
 ```bash
-# Activer le profil development (par défaut)
+# Activer le profil development
 export MISE_ENV=development
 # ou
 mise run env:dev
@@ -148,12 +258,9 @@ mise run env-check
 # 🔗 Redirect URL: https://twitch-chatters-dev.vignemail1.eu/auth/callback
 # 📊 Monitoring: false
 
-# Démarrer en mode dev
+# Démarrer
 mise run up
 # 🚀 Démarrage sans monitoring (development)
-
-# Ou avec ports exposés pour debug
-mise run up:dev
 ```
 
 #### Mode Production
@@ -164,86 +271,55 @@ export MISE_ENV=production
 # ou
 mise run env:prod
 
-# Vérifier la configuration
+# Vérifier
 mise run env-check
 # 🌐 Environnement: production
 # 🔗 Redirect URL: https://twitch-chatters.vignemail1.eu/auth/callback
 # 📊 Monitoring: true
 
-# Démarrer en mode prod (avec monitoring)
+# Démarrer avec monitoring
 mise run up
 # 📊 Démarrage avec monitoring (production)
-
-# Ou utiliser la tâche dédiée
-mise run up:prod
-```
-
-#### Mode Staging
-
-```bash
-# Activer le profil staging
-export MISE_ENV=staging
-mise run env:staging
-
-# Démarrer
-mise run up
 ```
 
 ### Différences par Environnement
 
-#### Development
-```bash
-# .env.development
-APP_ENV=development
-LOG_LEVEL=DEBUG
-TWITCH_REDIRECT_URL=https://twitch-chatters-dev.vignemail1.eu/auth/callback
-RATE_LIMIT_REQUESTS_PER_SECOND=50  # Plus permissif
-JOB_POLL_INTERVAL=1                 # Plus rapide
-CACHE_TTL_SECONDS=30                # Cache court
-ENABLE_MONITORING=false             # Pas de monitoring
-REDIS_PORT=6379                     # Exposé pour debug
-MYSQL_PORT=3306                     # Exposé pour debug
-```
-
-#### Production
-```bash
-# .env.production
-APP_ENV=production
-LOG_LEVEL=INFO
-TWITCH_REDIRECT_URL=https://twitch-chatters.vignemail1.eu/auth/callback
-RATE_LIMIT_REQUESTS_PER_SECOND=10  # Conservateur
-JOB_POLL_INTERVAL=2                 # Standard
-CACHE_TTL_SECONDS=300               # Cache long
-ENABLE_MONITORING=true              # Monitoring actif
-REDIS_PORT=                         # Non exposé
-MYSQL_PORT=                         # Non exposé
-```
-
-### Changer de Profil
-
-```bash
-# Méthode 1: Variable d'environnement
-export MISE_ENV=production
-cd . # Recharger direnv
-
-# Méthode 2: Tâche mise
-mise run env:prod
-
-# Méthode 3: Inline
-MISE_ENV=production mise run up
-```
+| Paramètre | Development | Production |
+|-----------|-------------|------------|
+| `APP_ENV` | `development` | `production` |
+| `LOG_LEVEL` | `DEBUG` | `INFO` |
+| Monitoring | ❌ Désactivé | ✅ Activé |
+| Redis Port | `6379` (exposé) | Non exposé |
+| MySQL Port | `3306` (exposé) | Non exposé |
+| Rate Limit | `50 req/s` | `10 req/s` |
+| Job Poll | `1s` | `2s` |
+| Cache TTL | `30s` | `300s` |
+| Redirect URL | `*-dev.*` | Production |
 
 ## 🔒 Sécurité
 
-### Gestion des Secrets
+### Gestion des Secrets avec fnox
 
-**✅ Bonnes pratiques implémentées** :
-- ❌ **Aucun** mot de passe ou secret en clair dans le code
-- ✅ **Fichiers séparés** par environnement (`.env.development`, `.env.production`)
-- ✅ **Secrets différents** pour dev et prod (obligatoire)
-- ✅ Génération automatique des secrets forts
-- ✅ Vérification des variables requises au démarrage
-- ✅ Documentation complète dans `.env.example`
+**✅ Avantages fnox** :
+- ✅ Stockage sécurisé (chiffré localement)
+- ✅ Pas de secrets en clair dans les fichiers
+- ✅ Gestion par environnement (dev/staging/prod)
+- ✅ Injection automatique dans l'environnement
+- ✅ Partage sécurisé entre équipes
+
+```bash
+# Définir un secret (saisie sécurisée)
+fnox secret set development MYSQL_ROOT_PASSWORD
+
+# Lister les secrets (valeurs masquées)
+fnox secrets list
+
+# Utiliser les secrets
+fnox run --env development mise run up
+
+# Supprimer un secret
+fnox secret rm development MYSQL_ROOT_PASSWORD
+```
 
 ### Variables Requises
 
@@ -251,8 +327,11 @@ MISE_ENV=production mise run up
 # Vérifier que toutes les variables sont définies
 mise run env-check
 
-# Générer des secrets forts automatiquement
-mise run env-generate
+# Générer des secrets forts
+mise run secrets:generate
+
+# Configurer fnox (aide)
+mise run secrets:setup
 ```
 
 ### Sécurité Infrastructure
@@ -264,6 +343,7 @@ mise run env-generate
 - ✅ Rate limiting distribué
 - ✅ Mots de passe hashés (bcrypt)
 - ✅ Base de données non exposée publiquement (prod)
+- ✅ Secrets gérés par fnox (chiffrés)
 
 ## 🛠️ Tâches mise
 
@@ -278,7 +358,10 @@ mise run env:dev        # Activer profil development
 mise run env:prod       # Activer profil production
 mise run env:staging    # Activer profil staging
 mise run env-check      # Vérifier les variables
-mise run env-generate   # Générer secrets
+
+# Secrets (fnox)
+mise run secrets:generate  # Générer secrets (fallback)
+mise run secrets:setup     # Aide configuration fnox
 
 # Build & Deploy
 mise run install        # go mod download
@@ -317,44 +400,24 @@ mise run clean          # Nettoyer fichiers temp
 ### Exemples d'Utilisation
 
 ```bash
-# Workflow Development
+# Workflow Development avec fnox
 export MISE_ENV=development
+fnox secret set development TWITCH_CLIENT_ID
+fnox secret set development MYSQL_ROOT_PASSWORD
 mise run env-check
-mise run build
-mise run up:dev
-mise run logs:gateway
+fnox run --env development mise run up
 
 # Workflow Production
 export MISE_ENV=production
+fnox secrets export production > .env.production
 mise run env-check
 mise run build:nocache
 mise run up:prod
-mise run logs
 
 # Backup production
 export MISE_ENV=production
 mise run db-backup
 # backup-production-20260209-143000.sql
-
-# Tester en dev avec dump prod
-export MISE_ENV=development
-mise run db-restore backup-production-20260209-143000.sql
-```
-
-## 🦞 fnox (Alternative à mise)
-
-[fnox](https://fnox.jdx.dev) est **100% compatible** avec la configuration mise :
-
-```bash
-# Installer fnox
-cargo install --locked fnox
-
-# Utilisation identique
-export MISE_ENV=development
-fnox install
-fnox run up
-fnox run logs
-fnox run env-check
 ```
 
 ## 📊 Ressources
@@ -379,19 +442,6 @@ Disk : ~21 GB + données utilisateurs
 
 Serveur recommandé : 8 vCPU, 12 GB RAM, 80 GB SSD
 Coût estimé : ~25€/mois (Hetzner CPX41)
-```
-
-### Avec Replicas (2 gateway, 3 workers, 2 analysis)
-
-```bash
-# Augmenter les replicas (en cas de charge)
-docker-compose up -d --scale gateway=2 --scale worker=3 --scale analysis=2
-
-CPU  : ~6 vCPU
-RAM  : ~7 GB
-
-Serveur recommandé : 8 vCPU, 16 GB RAM, 80 GB SSD
-Coût estimé : ~30€/mois (Hetzner CPX41)
 ```
 
 ## 📖 Documentation
@@ -422,29 +472,21 @@ Coût estimé : ~30€/mois (Hetzner CPX41)
 git clone https://github.com/vignemail1/twitch-chatters-analyser.git
 cd twitch-chatters-analyser
 mise install
+eval "$(mise activate bash)"
 
-# 2. Configurer development
-cp .env.example .env.development
-mise run env-generate >> .env.development
-vim .env.development  # Ajouter TWITCH_CLIENT_ID, etc.
+# 2. Configurer development avec fnox
+export MISE_ENV=development
+fnox secret set development TWITCH_CLIENT_ID
+fnox secret set development TWITCH_CLIENT_SECRET
+fnox secret set development MYSQL_ROOT_PASSWORD
+fnox secret set development MYSQL_PASSWORD
+fnox secret set development APP_SESSION_SECRET
+fnox secret set development TRAEFIK_AUTH
+fnox secret set development ACME_EMAIL
 
 # 3. Vérifier et démarrer
-export MISE_ENV=development
 mise run env-check
-mise run up:dev
-```
-
-### Mode Développement
-
-```bash
-# Démarrer avec ports exposés
-mise run up:dev
-
-# Accès direct aux services
-curl http://localhost:8080/healthz  # Gateway
-curl http://localhost:8083/healthz  # Analysis
-redis-cli -p 6379                   # Redis
-mysql -h 127.0.0.1 -P 3306 -u twitch -p  # MariaDB
+fnox run --env development mise run up:dev
 ```
 
 ### Tests
