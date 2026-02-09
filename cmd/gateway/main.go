@@ -123,6 +123,14 @@ type ExportAccountData struct {
 	LastSeen     time.Time `json:"last_seen"`
 }
 
+type AccountHistoryChange struct {
+	ChangedAt        time.Time
+	OldLogin         string
+	NewLogin         string
+	OldDisplayName   string
+	NewDisplayName   string
+}
+
 func main() {
 	port := getenv("APP_PORT", "8080")
 
@@ -203,6 +211,7 @@ func main() {
 	mux.HandleFunc("/sessions/purge", app.handlePurgeSession)
 	mux.HandleFunc("/sessions/export/", app.handleSessionExport)
 	mux.HandleFunc("/channels", app.handleChannels)
+	mux.HandleFunc("/accounts/", app.handleAccountHistory)
 	mux.HandleFunc("/auth/login", app.handleAuthLogin)
 	mux.HandleFunc("/auth/callback", app.handleAuthCallback)
 	mux.HandleFunc("/auth/logout", app.handleLogout)
@@ -280,6 +289,89 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 		log.Printf("%s %s from %s in %s", r.Method, r.URL.Path, r.RemoteAddr, time.Since(start))
 	})
+}
+
+func (a *App) handleAccountHistory(w http.ResponseWriter, r *http.Request) {
+	u := currentUser(r.Context())
+	if u == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusFound)
+		return
+	}
+
+	// Extraire le twitch_user_id depuis l'URL : /accounts/{id}/history
+	path := strings.TrimPrefix(r.URL.Path, "/accounts/")
+	path = strings.TrimSuffix(path, "/history")
+	twitchUserID := path
+
+	if twitchUserID == "" {
+		http.Error(w, "missing twitch_user_id", http.StatusBadRequest)
+		return
+	}
+
+	// Récupérer les infos actuelles du compte
+	var currentLogin, currentDisplayName string
+	var accountCreatedAt time.Time
+	err := a.db.QueryRowContext(r.Context(),
+		`SELECT login, display_name, created_at FROM accounts WHERE twitch_user_id = ? LIMIT 1`,
+		twitchUserID,
+	).Scan(&currentLogin, &currentDisplayName, &accountCreatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			http.Error(w, "account not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("query account error: %v", err)
+		http.Error(w, "failed to load account", http.StatusInternalServerError)
+		return
+	}
+
+	// Récupérer l'historique des changements
+	rows, err := a.db.QueryContext(r.Context(),
+		`SELECT changed_at, old_login, new_login, old_display_name, new_display_name 
+         FROM account_history 
+         WHERE twitch_user_id = ? 
+         ORDER BY changed_at DESC`,
+		twitchUserID,
+	)
+	if err != nil {
+		log.Printf("query history error: %v", err)
+		http.Error(w, "failed to load history", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var history []AccountHistoryChange
+	for rows.Next() {
+		var h AccountHistoryChange
+		if err := rows.Scan(&h.ChangedAt, &h.OldLogin, &h.NewLogin, &h.OldDisplayName, &h.NewDisplayName); err != nil {
+			log.Printf("scan history error: %v", err)
+			continue
+		}
+		history = append(history, h)
+	}
+
+	data := struct {
+		Title            string
+		CurrentUser      *CurrentUser
+		TwitchUserID     string
+		CurrentLogin     string
+		CurrentDisplayName string
+		AccountCreatedAt time.Time
+		History          []AccountHistoryChange
+	}{
+		Title:              "Historique des changements de noms",
+		CurrentUser:        u,
+		TwitchUserID:       twitchUserID,
+		CurrentLogin:       currentLogin,
+		CurrentDisplayName: currentDisplayName,
+		AccountCreatedAt:   accountCreatedAt,
+		History:            history,
+	}
+
+	if err := a.templates.ExecuteTemplate(w, "account_history.html", data); err != nil {
+		log.Printf("template error: %v", err)
+		http.Error(w, "internal server error", http.StatusInternalServerError)
+	}
 }
 
 func getenv(key, def string) string {
