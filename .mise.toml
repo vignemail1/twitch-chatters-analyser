@@ -7,8 +7,9 @@ go = "1.25"
 node = "22"
 python = "3.12"
 
-# Installer fnox via mise pour la gestion des secrets
-"cargo:fnox" = "latest"
+# fnox pour la gestion des secrets
+# https://fnox.jdx.dev
+fnox = "latest"
 
 [env]
 # Variables techniques (pas de secrets)
@@ -17,6 +18,7 @@ DOCKER_BUILDKIT = "1"
 COMPOSE_DOCKER_CLI_BUILD = "1"
 
 # Chargement du .env selon le profil
+# mise charge automatiquement les .env, pas besoin de direnv
 _.file = [
   ".env",
   { path = ".env.local", optional = true },
@@ -221,9 +223,10 @@ if [ ${#MISSING_VARS[@]} -gt 0 ]; then
   done
   echo ""
   echo "📝 Actions possibles :"
-  echo "  1. Utiliser fnox: mise run secrets:init"
-  echo "  2. Ou générer manuellement: mise run env-generate"
-  echo "  3. Copier les valeurs dans .env.$APP_ENV"
+  echo "  1. Copier .env.example vers .env.$APP_ENV"
+  echo "  2. Générer les secrets: mise run secrets:generate"
+  echo "  3. Utiliser fnox pour les secrets: fnox secrets"
+  echo "  4. Remplir les valeurs manquantes"
   exit 1
 fi
 
@@ -233,8 +236,9 @@ echo "🔗 Redirect URL: $TWITCH_REDIRECT_URL"
 echo "📊 Monitoring: $ENABLE_MONITORING"
 """
 
-[tasks.env-generate]
-description = "Générer les secrets pour .env (alternatif à fnox)"
+[tasks."secrets:generate"]
+alias = "env-generate"
+description = "Générer les secrets pour .env (utiliser fnox est recommandé)"
 run = """
 #!/usr/bin/env bash
 set -e
@@ -243,8 +247,8 @@ echo "# ======================================"
 echo "# Secrets générés automatiquement"
 echo "# ======================================"
 echo ""
-echo "🔒 Note: Utilisez fnox pour une gestion avancée des secrets"
-echo "📝 Commande: mise run secrets:init"
+echo "⚠️  Recommandation: Utiliser fnox pour gérer les secrets"
+echo "   fnox permet un stockage sécurisé et une injection automatique"
 echo ""
 
 echo "# MySQL Root Password"
@@ -271,40 +275,37 @@ fi
 echo ""
 echo "📝 Copier ces valeurs dans .env.development et .env.production"
 echo "🔒 Utiliser des secrets différents pour dev et prod!"
+echo ""
+echo "🦞 Ou utiliser fnox pour une gestion sécurisée:"
+echo "   mise run secrets:setup"
 """
 
-[tasks."secrets:init"]
-description = "Initialiser fnox pour la gestion des secrets"
+[tasks."secrets:setup"]
+description = "Configurer fnox pour la gestion des secrets"
 run = """
 #!/usr/bin/env bash
 set -e
 
-echo "🔐 Initialisation de fnox pour la gestion des secrets"
+echo "🦞 Configuration de fnox pour la gestion des secrets"
 echo ""
 
 if ! command -v fnox &> /dev/null; then
   echo "❌ fnox n'est pas installé"
-  echo "📝 Installation via mise..."
-  mise install cargo:fnox
-  echo ""
+  echo "Installation via mise: mise install fnox"
+  exit 1
 fi
 
-echo "✅ fnox est installé"
+echo "fnox permet de stocker les secrets de manière sécurisée"
+echo "et de les injecter automatiquement dans l'environnement."
 echo ""
-echo "📖 Documentation fnox: https://fnox.jdx.dev"
+echo "Documentation: https://fnox.jdx.dev/secrets.html"
 echo ""
-echo "Commandes utiles:"
-echo "  fnox set <KEY> <VALUE>      # Ajouter un secret"
-echo "  fnox get <KEY>              # Récupérer un secret"
-echo "  fnox list                   # Lister les secrets"
-echo "  fnox delete <KEY>           # Supprimer un secret"
+echo "Exemples de commandes:"
+echo "  fnox secret set development MYSQL_ROOT_PASSWORD"
+echo "  fnox secret set production TWITCH_CLIENT_ID"
+echo "  fnox secrets list"
+echo "  fnox secrets export development"
 echo ""
-echo "Exemple:"
-echo "  fnox set MYSQL_ROOT_PASSWORD \$(openssl rand -base64 32)"
-echo "  fnox set TWITCH_CLIENT_ID your_client_id"
-echo ""
-echo "🔒 Les secrets fnox sont stockés de manière sécurisée"
-echo "📝 Ils peuvent être injectés dans .env.$APP_ENV"
 """
 
 [tasks."env:dev"]
@@ -312,9 +313,9 @@ description = "Activer le profil development"
 run = """
 #!/usr/bin/env bash
 echo "🛠️  Activation du profil DEVELOPMENT"
-echo "export MISE_ENV=development" > .envrc.local
+echo "export MISE_ENV=development" > .mise.env.local
 echo "✅ Profil development activé"
-echo "🔄 Exécuter: eval \"\$(mise activate bash)\""
+echo "Redémarrer le shell ou lancer: eval \"$(mise activate bash)\""
 """
 
 [tasks."env:prod"]
@@ -322,9 +323,9 @@ description = "Activer le profil production"
 run = """
 #!/usr/bin/env bash
 echo "🚀 Activation du profil PRODUCTION"
-echo "export MISE_ENV=production" > .envrc.local
+echo "export MISE_ENV=production" > .mise.env.local
 echo "✅ Profil production activé"
-echo "🔄 Exécuter: eval \"\$(mise activate bash)\""
+echo "Redémarrer le shell ou lancer: eval \"$(mise activate bash)\""
 """
 
 [tasks."env:staging"]
@@ -332,48 +333,9 @@ description = "Activer le profil staging"
 run = """
 #!/usr/bin/env bash
 echo "🧪 Activation du profil STAGING"
-echo "export MISE_ENV=staging" > .envrc.local
+echo "export MISE_ENV=staging" > .mise.env.local
 echo "✅ Profil staging activé"
-echo "🔄 Exécuter: eval \"\$(mise activate bash)\""
-"""
-
-[tasks."dns:check"]
-description = "Vérifier la configuration DNS"
-run = """
-#!/usr/bin/env bash
-set -e
-
-echo "🌐 Vérification de la configuration DNS"
-echo ""
-echo "Environnement: $APP_ENV"
-echo ""
-
-DOMAINS=(
-  "twitch-chatters.vignemail1.eu"
-  "twitch-chatters-dev.vignemail1.eu"
-  "traefik.vignemail1.eu"
-)
-
-if [ "$ENABLE_MONITORING" = "true" ]; then
-  DOMAINS+=(
-    "grafana.vignemail1.eu"
-    "prometheus.vignemail1.eu"
-    "alerts.vignemail1.eu"
-  )
-fi
-
-for domain in "${DOMAINS[@]}"; do
-  echo -n "· $domain ... "
-  if host "$domain" > /dev/null 2>&1; then
-    IP=$(host "$domain" | grep -oP '(?<=has address )\S+' | head -n1)
-    echo "✅ $IP"
-  else
-    echo "❌ Non configuré"
-  fi
-done
-
-echo ""
-echo "📝 Pour configurer les DNS, voir le README.md (section DNS)"
+echo "Redémarrer le shell ou lancer: eval \"$(mise activate bash)\""
 """
 
 [tasks.db-backup]

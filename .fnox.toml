@@ -1,0 +1,84 @@
+# Configuration fnox (https://fnox.jdx.dev)
+# Gestion sécurisée des secrets par environnement
+
+# fnox stocke les secrets de manière sécurisée et les injecte
+# automatiquement dans l'environnement lors de l'exécution
+
+# Documentation: https://fnox.jdx.dev/secrets.html
+
+# ======================================
+# SECRETS DEVELOPMENT
+# ======================================
+[secrets.development]
+# Secrets à définir pour l'environnement development
+# Commande: fnox secret set development <SECRET_NAME>
+
+# Twitch OAuth (app development)
+# fnox secret set development TWITCH_CLIENT_ID
+# fnox secret set development TWITCH_CLIENT_SECRET
+
+# Base de données development
+# fnox secret set development MYSQL_ROOT_PASSWORD
+# fnox secret set development MYSQL_PASSWORD
+
+# Session secret development
+# fnox secret set development APP_SESSION_SECRET
+
+# Traefik auth development
+# fnox secret set development TRAEFIK_AUTH
+
+# Email ACME
+# fnox secret set development ACME_EMAIL
+
+# ======================================
+# SECRETS PRODUCTION
+# ======================================
+[secrets.production]
+# Secrets à définir pour l'environnement production
+# 🔒 Utiliser des valeurs DIFFÉRENTES de development!
+# Commande: fnox secret set production <SECRET_NAME>
+
+# Twitch OAuth (app production - DIFFÉRENTE de dev)
+# fnox secret set production TWITCH_CLIENT_ID
+# fnox secret set production TWITCH_CLIENT_SECRET
+
+# Base de données production (mots de passe FORTS)
+# fnox secret set production MYSQL_ROOT_PASSWORD
+# fnox secret set production MYSQL_PASSWORD
+
+# Session secret production (FORT et différent)
+# fnox secret set production APP_SESSION_SECRET
+
+# Traefik auth production
+# fnox secret set production TRAEFIK_AUTH
+
+# Email ACME
+# fnox secret set production ACME_EMAIL
+
+# ======================================
+# SECRETS STAGING
+# ======================================
+[secrets.staging]
+# Secrets staging (peuvent être proches de production)
+# Commande: fnox secret set staging <SECRET_NAME>
+
+# ======================================
+# UTILISATION
+# ======================================
+# 
+# Définir un secret:
+#   fnox secret set development MYSQL_ROOT_PASSWORD
+#   (interactif, saisie sécurisée)
+# 
+# Lister les secrets:
+#   fnox secrets list
+# 
+# Exporter les secrets (pour .env):
+#   fnox secrets export development > .env.development
+# 
+# Exécuter avec injection des secrets:
+#   fnox run --env development docker-compose up
+# 
+# Supprimer un secret:
+#   fnox secret rm development MYSQL_ROOT_PASSWORD
+# 

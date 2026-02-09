@@ -7,6 +7,12 @@
 .env.local
 .env.*.local
 
+# Configuration locale mise
+.mise.env.local
+
+# Secrets fnox (stockés de manière sécurisée par fnox)
+.fnox/
+
 # Binaires Go
 bin/
 *.exe
@@ -49,10 +55,6 @@ backup-*.sql
 
 # Mise/asdf
 .mise.local.toml
-.envrc.local
-
-# fnox secrets
-.fnox/
 
 # Secrets temporaires
 secrets.txt
