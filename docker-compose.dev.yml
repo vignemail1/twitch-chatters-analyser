@@ -3,21 +3,53 @@
 # Usage : docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
 
 services:
-  gateway:
+  traefik:
+    command:
+      # API et Dashboard
+      - "--api.dashboard=true"
+      - "--api.insecure=true"  # Dashboard accessible sans auth en dev
+      # Log level
+      - "--log.level=DEBUG"     # Plus de logs en dev
+      - "--accesslog=true"
+      # Docker provider
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=backend"
+      # Entrypoints HTTP/HTTPS
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      # Pas de redirection HTTP en dev
     ports:
-      - "8080:8080"
+      - "8090:8080"  # Dashboard Traefik sur :8090 en dev
+    labels:
+      # Dashboard sans auth en dev
+      - "traefik.http.routers.traefik-dashboard.middlewares="
+
+  gateway:
+    environment:
+      APP_ENV: development
+    ports:
+      - "8080:8080"  # Accès direct en dev
     deploy:
       replicas: 1  # 1 seule instance pour dev
     container_name: twitch-chatters-gateway
 
+  twitch-api:
+    environment:
+      APP_ENV: development
+
   analysis:
+    environment:
+      APP_ENV: development
     ports:
-      - "8083:8083"
+      - "8083:8083"  # Accès direct en dev
     deploy:
       replicas: 1  # 1 seule instance pour dev
     container_name: twitch-chatters-analysis
 
   worker:
+    environment:
+      APP_ENV: development
     deploy:
       replicas: 1  # 1 seul worker pour dev
     container_name: twitch-chatters-worker
