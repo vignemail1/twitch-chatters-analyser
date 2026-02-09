@@ -1,0 +1,23 @@
+# docker-compose.dev.yml
+# Configuration pour développement local avec ports exposés
+# Usage : docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  gateway:
+    ports:
+      - "8080:8080"
+    deploy:
+      replicas: 1  # 1 seule instance pour dev
+    container_name: twitch-chatters-gateway
+
+  analysis:
+    ports:
+      - "8083:8083"
+    deploy:
+      replicas: 1  # 1 seule instance pour dev
+    container_name: twitch-chatters-analysis
+
+  worker:
+    deploy:
+      replicas: 1  # 1 seul worker pour dev
+    container_name: twitch-chatters-worker
