@@ -92,7 +92,7 @@ services:
     build:
       context: .
       dockerfile: ./cmd/gateway/Dockerfile
-    container_name: twitch-chatters-gateway
+    # container_name retiré pour permettre le scaling
     restart: unless-stopped
     depends_on:
       db:
@@ -147,7 +147,7 @@ services:
     build:
       context: .
       dockerfile: ./cmd/twitch-api/Dockerfile
-    container_name: twitch-chatters-twitch-api
+    # container_name retiré pour permettre le scaling
     restart: unless-stopped
     depends_on:
       redis:
@@ -173,7 +173,7 @@ services:
     build:
       context: .
       dockerfile: ./cmd/worker/Dockerfile
-    container_name: twitch-chatters-worker
+    # container_name retiré pour permettre le scaling
     restart: unless-stopped
     depends_on:
       db:
@@ -202,7 +202,7 @@ services:
     build:
       context: .
       dockerfile: ./cmd/analysis/Dockerfile
-    container_name: twitch-chatters-analysis
+    # container_name retiré pour permettre le scaling
     restart: unless-stopped
     depends_on:
       db:
