@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     PRIMARY KEY (id),
     CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_sessions_user (user_id),
-    INDEX idx_sessions_status (status)
+    INDEX idx_sessions_status (status),
+    INDEX idx_sessions_user_status (user_id, status) -- Optimisation pour getActiveSessionUUID
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Captures (snapshots de chatters)
@@ -57,7 +58,8 @@ CREATE TABLE IF NOT EXISTS captures (
     PRIMARY KEY (id),
     CONSTRAINT fk_captures_session FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
     INDEX idx_captures_session (session_id),
-    INDEX idx_captures_broadcaster (broadcaster_id)
+    INDEX idx_captures_broadcaster (broadcaster_id),
+    INDEX idx_captures_session_captured (session_id, captured_at) -- Optimisation pour analyses temporelles
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Lien capture -> chatters (sera utilisé par le worker plus tard)
@@ -68,7 +70,8 @@ CREATE TABLE IF NOT EXISTS capture_chatters (
     PRIMARY KEY (id),
     CONSTRAINT fk_capture_chatters_capture FOREIGN KEY (capture_id) REFERENCES captures(id) ON DELETE CASCADE,
     INDEX idx_capture_chatters_capture (capture_id),
-    INDEX idx_capture_chatters_user (twitch_user_id)
+    INDEX idx_capture_chatters_user (twitch_user_id),
+    INDEX idx_capture_chatters_capture_user (capture_id, twitch_user_id) -- Optimisation pour dédoublonnage
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- File de jobs pour le worker
@@ -82,7 +85,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     finished_at DATETIME(6) NULL,
     error_message TEXT NULL,
     PRIMARY KEY (id),
-    INDEX idx_jobs_status_created (status, created_at)
+    INDEX idx_jobs_status_created (status, created_at) -- Optimisation pour polling worker
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Comptes Twitch (enrichis par le worker)
