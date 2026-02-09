@@ -23,10 +23,11 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 │  ┌───────────────┐   ┌───────────────┐   ┌───────────────┐   ┌───────────────┐  │
 │  │   Gateway     │   │  Twitch-API  │   │   Worker      │   │  Analysis    │  │
 │  │  HTTP API    │   │  Rate Limit  │   │  Job Queue   │   │  Stats       │  │
+│  │  (Scalable)  │   │  (Scalable)  │   │  (Scalable)  │   │  (Scalable)  │  │
 │  └───────┬────────┘   └───────┬────────┘   └───────┬────────┘   └───────┬────────┘  │
 │          │                   │               │               │             │
 │          v                   v               v               v             │
-│  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
+│  ┌──────────────────────────────────────────────────────────────────────────────────────┐  │
 │  │                                                                                            │  │
 │  │                 ┌─────────────────────────────────────────┐                     │  │
 │  │                 │         Backend Network              │                     │  │
@@ -52,10 +53,10 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
                                https://twitch-chatters.vignemail1.eu
 ```
 
-- **Gateway** : API HTTP, authentification OAuth Twitch, gestion sessions
-- **Twitch-API** : Wrapper API Twitch avec rate limiting
-- **Worker** : Traitement asynchrone des jobs (captures, enrichissement)
-- **Analysis** : API d'analyse et statistiques
+- **Gateway** : API HTTP, authentification OAuth Twitch, gestion sessions (✅ **Scalable**)
+- **Twitch-API** : Wrapper API Twitch avec rate limiting (✅ **Scalable**)
+- **Worker** : Traitement asynchrone des jobs (captures, enrichissement) (✅ **Scalable**)
+- **Analysis** : API d'analyse et statistiques (✅ **Scalable**)
 - **MariaDB** : Base de données relationnelle (utilisateurs, sessions, captures)
 - **Redis** : Cache distribué, sessions, rate limiting
 - **Traefik** : Reverse proxy, terminaison TLS, load balancing
@@ -422,7 +423,7 @@ mise run db-backup
 
 ## 📊 Ressources
 
-### Configuration Actuelle (Single Instance)
+### Configuration Par Défaut (1 instance par service)
 
 ```
 CPU  : ~4 vCPU (moyenne)
@@ -591,39 +592,69 @@ docker system prune -a
 mise run clean
 ```
 
-## 🚀 Performance
+## 🚀 Performance & Scaling
 
-### Capacité Actuelle (Configuration Single Instance)
+### Capacité Par Défaut (1 instance par service)
 
 - ✅ 100-500 utilisateurs actifs simultanés
 - ✅ 1000-5000 captures/heure
 - ✅ 10-50 requêtes HTTP/sec
 
-**Configuration** :
-```
-Gateway: 1 instance
-Worker: 1 instance
-Analysis: 1 instance
-Twitch-API: 1 instance
-```
+### Scaling Horizontal (Multi-Réplicas)
 
-### Scalabilité Horizontale (Future)
+Les services **Gateway**, **Worker**, **Analysis** et **Twitch-API** sont scalables !
 
-Pour augmenter la capacité, voir [SCALING.md](docs/SCALING.md) pour migrer vers un système multi-réplicas :
+#### Méthode 1 : Docker Compose (Simple)
 
 ```bash
-# Nécessite de modifier docker-compose.yml (retirer container_name)
-# Puis en mode Swarm:
-docker swarm init
-docker stack deploy -c docker-compose.yml twitch-chatters
-docker service scale twitch-chatters_gateway=2
-docker service scale twitch-chatters_worker=3
+# Démarrer avec plus de réplicas
+docker-compose up -d --scale gateway=2 --scale worker=3 --scale analysis=2
 
-# Capacité multi-réplicas:
-- ✅ 500-1000 utilisateurs actifs
+# Vérifier les instances
+docker-compose ps
+
+# Traefik load balance automatiquement entre les gateways
+# Les workers partagent la queue de jobs via Redis
+# Les analysis partagent le cache via Redis
+```
+
+#### Méthode 2 : Docker Swarm (Production)
+
+```bash
+# Initialiser Swarm
+docker swarm init
+
+# Déployer la stack
+docker stack deploy -c docker-compose.yml twitch-chatters
+
+# Scaler dynamiquement
+docker service scale twitch-chatters_gateway=3
+docker service scale twitch-chatters_worker=5
+docker service scale twitch-chatters_analysis=2
+
+# Surveiller
+docker service ls
+docker service ps twitch-chatters_gateway
+```
+
+### Capacité avec Multi-Réplicas
+
+**Configuration recommandée pour charge moyenne** :
+```bash
+gateway=2 worker=3 analysis=2
+```
+
+**Capacité** :
+- ✅ 500-1000 utilisateurs actifs simultanés
 - ✅ 5000-20000 captures/heure
 - ✅ 50-200 requêtes HTTP/sec
-```
+
+**Ressources** :
+- CPU : ~8 vCPU
+- RAM : ~12 GB
+- Disk : ~80 GB SSD
+
+Voir [SCALING.md](docs/SCALING.md) pour plus de détails sur les stratégies de scaling.
 
 ## 📝 Licence
 
