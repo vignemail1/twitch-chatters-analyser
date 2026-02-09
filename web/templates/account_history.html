@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="utf-8" />
+    <title>Historique des renommages - {{ .TwitchUserID }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link href="/static/css/main.css" rel="stylesheet" />
+    <script src="/static/js/timezone.js"></script>
+</head>
+<body class="dark">
+<header>
+    <h1>Twitch Chatters Analyser</h1>
+    <div class="user-info">
+        {{ if .CurrentUser }}
+            Connecté en tant que <strong>{{ .CurrentUser.DisplayName }}</strong> ({{ .CurrentUser.Login }})
+            <p><a href="/">Accueil</a> | <a href="/channels">Mes chaînes</a> | <a href="/sessions">Sessions sauvegardées</a></p>
+            <p><a href="/auth/logout" style="color: #ef4444;">Se déconnecter</a></p>
+        {{ else }}
+            <a href="/auth/login">Se connecter avec Twitch</a>
+        {{ end }}
+    </div>
+</header>
+<main>
+<h2>📜 Historique des changements de noms</h2>
+
+<div style="background-color: #18181b; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #9147ff;">
+    <h3 style="margin-top: 0; color: #9147ff;">👤 Informations du compte</h3>
+    <div style="display: grid; gap: 1rem;">
+        <div>
+            <span style="color: #adadb8; font-size: 0.9rem;">Twitch User ID</span><br/>
+            <code style="background-color: #0e0e10; padding: 0.3rem 0.6rem; border-radius: 4px; font-size: 1.1rem; display: inline-block; margin-top: 0.25rem;">{{ .TwitchUserID }}</code>
+        </div>
+        <div>
+            <span style="color: #adadb8; font-size: 0.9rem;">Nom actuel</span><br/>
+            <strong style="font-size: 1.2rem; color: #efeff1;">{{ .CurrentLogin }}</strong>
+            {{ if ne .CurrentLogin .CurrentDisplayName }}
+                <span style="color: #adadb8;">({{ .CurrentDisplayName }})</span>
+            {{ end }}
+        </div>
+        {{ if .AccountCreatedAt }}
+        <div>
+            <span style="color: #adadb8; font-size: 0.9rem;">Compte créé le</span><br/>
+            <span style="color: #efeff1;" data-utc-date="{{ .AccountCreatedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="date">{{ .AccountCreatedAt.Format "02/01/2006" }}</span>
+        </div>
+        {{ end }}
+    </div>
+</div>
+
+{{ if .History }}
+<div style="background-color: #450a0a; padding: 1.5rem; border-radius: 8px; margin-bottom: 2rem; border-left: 4px solid #ef4444;">
+    <h3 style="margin-top: 0; color: #ef4444;">📈 Résumé des changements</h3>
+    <p style="color: #fca5a5; font-size: 1.1rem; font-weight: 600;">
+        Ce compte a changé de nom <strong>{{ len .History }} fois</strong>
+    </p>
+    <p style="color: #fecaca; margin-bottom: 0;">
+        Les comptes qui changent fréquemment de nom sont souvent des bots cherchant à éviter la détection.
+    </p>
+</div>
+
+<h3>🗓️ Timeline des changements</h3>
+
+<div style="background-color: #18181b; padding: 1.5rem; border-radius: 8px;">
+    <div style="position: relative;">
+        <!-- Ligne verticale de timeline -->
+        <div style="position: absolute; left: 20px; top: 0; bottom: 0; width: 2px; background-color: #3b82f6;"></div>
+        
+        {{ range $index, $change := .History }}
+        <div style="position: relative; padding-left: 60px; padding-bottom: 2rem;">
+            <!-- Point sur la timeline -->
+            <div style="position: absolute; left: 11px; top: 5px; width: 20px; height: 20px; border-radius: 50%; background-color: #ef4444; border: 3px solid #18181b; z-index: 1;"></div>
+            
+            <div style="background-color: #0e0e10; padding: 1rem; border-radius: 8px; border-left: 3px solid #ef4444;">
+                <div style="color: #adadb8; font-size: 0.85rem; margin-bottom: 0.5rem;" data-utc-date="{{ $change.ChangedAt.Format "2006-01-02T15:04:05Z07:00" }}" data-format="datetime">
+                    🕒 {{ $change.ChangedAt.Format "02/01/2006 à 15:04:05" }}
+                </div>
+                
+                <div style="display: grid; gap: 0.75rem;">
+                    {{ if $change.OldLogin }}
+                    <div>
+                        <span style="color: #f87171; font-size: 0.85rem; text-transform: uppercase; font-weight: 600;">Ancien login</span><br/>
+                        <code style="background-color: #7f1d1d; color: #fca5a5; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.95rem; display: inline-block; margin-top: 0.25rem;">{{ $change.OldLogin }}</code>
+                    </div>
+                    {{ end }}
+                    
+                    {{ if $change.NewLogin }}
+                    <div>
+                        <span style="color: #34d399; font-size: 0.85rem; text-transform: uppercase; font-weight: 600;">Nouveau login</span><br/>
+                        <code style="background-color: #064e3b; color: #6ee7b7; padding: 0.25rem 0.5rem; border-radius: 3px; font-size: 0.95rem; display: inline-block; margin-top: 0.25rem;">{{ $change.NewLogin }}</code>
+                    </div>
+                    {{ end }}
+                    
+                    {{ if or $change.OldDisplayName $change.NewDisplayName }}
+                    <div style="border-top: 1px solid #2d2d31; padding-top: 0.75rem; margin-top: 0.25rem;">
+                        <div style="display: grid; gap: 0.5rem;">
+                            {{ if $change.OldDisplayName }}
+                            <div>
+                                <span style="color: #fca5a5; font-size: 0.8rem;">Ancien display name :</span>
+                                <span style="color: #adadb8;">{{ $change.OldDisplayName }}</span>
+                            </div>
+                            {{ end }}
+                            {{ if $change.NewDisplayName }}
+                            <div>
+                                <span style="color: #6ee7b7; font-size: 0.8rem;">Nouveau display name :</span>
+                                <span style="color: #adadb8;">{{ $change.NewDisplayName }}</span>
+                            </div>
+                            {{ end }}
+                        </div>
+                    </div>
+                    {{ end }}
+                </div>
+            </div>
+        </div>
+        {{ end }}
+    </div>
+</div>
+
+<div style="margin-top: 2rem; padding: 1rem; background-color: #18181b; border-radius: 4px;">
+    <h4 style="margin-top: 0; color: #efeff1;">💡 Interprétation</h4>
+    <ul style="color: #adadb8; margin-left: 1.5rem; line-height: 1.8;">
+        {{ if ge (len .History) 6 }}
+        <li><span style="color: #dc2626; font-weight: 700;">🔴 COMPTE TRÈS SUSPECT</span> : {{ len .History }} changements sont hautement anormaux</li>
+        {{ else if ge (len .History) 3 }}
+        <li><span style="color: #f59e0b; font-weight: 600;">🟠 COMPTE SUSPECT</span> : {{ len .History }} changements indiquent un comportement atypique</li>
+        {{ else }}
+        <li><span style="color: #3b82f6;">🔵 À SURVEILLER</span> : {{ len .History }} changement(s) peuvent être légitimes (rebranding)</li>
+        {{ end }}
+        <li>Les bots changent souvent de nom pour éviter les filtres et bans temporaires</li>
+        <li>Un compte légitime change rarement son login (max 1-2 fois dans sa vie)</li>
+    </ul>
+</div>
+
+{{ else }}
+<div class="info">
+    <p><strong>Aucun changement de nom détecté</strong></p>
+    <p>Ce compte n'a jamais changé de nom depuis qu'il a été observé dans le système.</p>
+    <p style="color: #22c55e;">✅ Comportement normal</p>
+</div>
+{{ end }}
+
+<div style="margin-top: 3rem; padding-top: 2rem; border-top: 1px solid #2d2d31; text-align: center;">
+    <a href="javascript:history.back()" style="display: inline-block; background-color: #9147ff; color: #fff; padding: 0.75rem 1.5rem; border-radius: 4px; text-decoration: none; font-weight: 600;">
+        ← Retour
+    </a>
+</div>
+</main>
+</body>
+</html>
