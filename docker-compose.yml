@@ -54,8 +54,11 @@ services:
         condition: service_healthy
       twitch-api:
         condition: service_started
-    ports:
-      - "8080:8080"
+    # Port retiré pour permettre les replicas
+    # Accès via Traefik ou directement sur le réseau backend
+    # Pour dev local : docker-compose exec gateway-1 wget -O- http://localhost:8080
+    expose:
+      - "8080"
     environment:
       APP_ENV: ${APP_ENV:-dev}
       APP_PORT: "8080"
@@ -152,8 +155,10 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    ports:
-      - "8083:8083"
+    # Port retiré pour permettre les replicas
+    # Communication interne via http://analysis:8083
+    expose:
+      - "8083"
     environment:
       APP_ENV: ${APP_ENV:-dev}
       APP_PORT: "8083"
