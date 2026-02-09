@@ -1,0 +1,6 @@
+# Configuration asdf/mise - Versions des outils
+# Compatible avec asdf (https://asdf-vm.com) et mise (https://mise.jdx.dev)
+
+go 1.25
+node 22
+python 3.12

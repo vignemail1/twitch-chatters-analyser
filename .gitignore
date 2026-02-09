@@ -1,1 +1,48 @@
+# Fichiers de configuration sensibles
 .env
+.env.local
+.env.*.local
+
+# Binaires Go
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Tests
+*.test
+*.out
+coverage.txt
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Docker
+*.log
+
+# Backup
+*.bak
+*.sql
+backup/
+
+# Certificats
+*.pem
+*.key
+*.crt
+
+# Mise/asdf
+.mise.local.toml
+
+# Direnv
+.envrc.local

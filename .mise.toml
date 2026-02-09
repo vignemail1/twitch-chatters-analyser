@@ -1,0 +1,120 @@
+# Configuration mise (https://mise.jdx.dev)
+# Gestion des outils et variables d'environnement du projet
+
+[tools]
+# Versions des outils de développement
+go = "1.25"
+docker = "latest"
+"docker-compose" = "latest"
+
+# Optionnel : outils utiles pour le projet
+node = "22"           # Pour linting, pre-commit, etc.
+python = "3.12"       # Pour scripts de déploiement
+
+[env]
+# Variables d'environnement par défaut (non-sensibles uniquement)
+_.file = ".env"
+_.path = [
+  "./bin",
+  "./scripts"
+]
+
+# Variables techniques (pas de secrets)
+COMPOSE_PROJECT_NAME = "twitch-chatters-analyser"
+DOCKER_BUILDKIT = "1"
+COMPOSE_DOCKER_CLI_BUILD = "1"
+
+[tasks.install]
+description = "Installer les dépendances"
+run = "go mod download"
+
+[tasks.build]
+description = "Builder les images Docker"
+run = "docker-compose build"
+
+[tasks.up]
+description = "Démarrer tous les services"
+run = "docker-compose up -d"
+
+[tasks.down]
+description = "Arrêter tous les services"
+run = "docker-compose down"
+
+[tasks.logs]
+description = "Afficher les logs"
+run = "docker-compose logs -f"
+
+[tasks.test]
+description = "Lancer les tests"
+run = "go test -v ./..."
+
+[tasks.lint]
+description = "Linter le code"
+run = "golangci-lint run"
+
+[tasks.env-check]
+description = "Vérifier que toutes les variables d'environnement sont définies"
+run = """
+#!/usr/bin/env bash
+set -e
+
+REQUIRED_VARS=(
+  "TWITCH_CLIENT_ID"
+  "TWITCH_CLIENT_SECRET"
+  "TWITCH_REDIRECT_URL"
+  "MYSQL_ROOT_PASSWORD"
+  "MYSQL_PASSWORD"
+  "APP_SESSION_SECRET"
+  "ACME_EMAIL"
+  "TRAEFIK_AUTH"
+)
+
+MISSING_VARS=()
+
+for var in "${REQUIRED_VARS[@]}"; do
+  if [ -z "${!var}" ]; then
+    MISSING_VARS+=("$var")
+  fi
+done
+
+if [ ${#MISSING_VARS[@]} -gt 0 ]; then
+  echo "❌ Variables manquantes dans .env :"
+  for var in "${MISSING_VARS[@]}"; do
+    echo "  - $var"
+  done
+  echo ""
+  echo "📝 Copier .env.example vers .env et remplir les valeurs manquantes"
+  exit 1
+fi
+
+echo "✅ Toutes les variables d'environnement requises sont définies"
+"""
+
+[tasks.env-generate]
+description = "Générer les secrets pour .env"
+run = """
+#!/usr/bin/env bash
+set -e
+
+echo "# Secrets générés automatiquement"
+echo ""
+
+echo "# MySQL Root Password"
+echo "MYSQL_ROOT_PASSWORD=$(openssl rand -base64 32)"
+echo ""
+
+echo "# MySQL User Password"
+echo "MYSQL_PASSWORD=$(openssl rand -base64 32)"
+echo ""
+
+echo "# App Session Secret"
+echo "APP_SESSION_SECRET=$(openssl rand -base64 32)"
+echo ""
+
+echo "# Traefik Auth (admin/admin)"
+echo "# Changer 'admin' par le mot de passe souhaité"
+echo "TRAEFIK_AUTH=$(echo $(htpasswd -nB admin 2>/dev/null || echo 'Installer apache2-utils pour générer') | sed -e 's/\$/\$\$/g')"
+echo ""
+
+echo "📝 Copier ces valeurs dans votre fichier .env"
+"""
