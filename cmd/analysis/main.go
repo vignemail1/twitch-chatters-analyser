@@ -19,11 +19,13 @@ type App struct {
 }
 
 type SessionSummary struct {
-	SessionUUID   string        `json:"session_uuid"`
-	TotalAccounts int64         `json:"total_accounts"`
-	TopDays       []TopDay      `json:"top_days"`
-	Broadcasters  []Broadcaster `json:"broadcasters"`
-	GeneratedAt   time.Time     `json:"generated_at"`
+	SessionUUID            string              `json:"session_uuid"`
+	TotalAccounts          int64               `json:"total_accounts"`
+	TopDays                []TopDay            `json:"top_days"`
+	Broadcasters           []Broadcaster       `json:"broadcasters"`
+	SuspiciousRenamesCount int64               `json:"suspicious_renames_count"`
+	SuspiciousAccounts     []SuspiciousAccount `json:"suspicious_accounts,omitempty"`
+	GeneratedAt            time.Time           `json:"generated_at"`
 }
 
 type TopDay struct {
@@ -35,6 +37,13 @@ type Broadcaster struct {
 	BroadcasterID    string `json:"broadcaster_id"`
 	BroadcasterLogin string `json:"broadcaster_login"`
 	CaptureCount     int64  `json:"capture_count"`
+}
+
+type SuspiciousAccount struct {
+	TwitchUserID string `json:"twitch_user_id"`
+	Login        string `json:"login"`
+	DisplayName  string `json:"display_name"`
+	RenameCount  int64  `json:"rename_count"`
 }
 
 func main() {
@@ -230,12 +239,22 @@ LIMIT 10
 		return nil, err
 	}
 
+	// Détection des comptes suspects avec renommages multiples (seuil: 3+)
+	suspiciousAccounts, err := a.getSuspiciousRenames(ctx, sessionID, filterBroadcasters)
+	if err != nil {
+		log.Printf("getSuspiciousRenames error: %v", err)
+		// Non-bloquant, on continue sans cette stat
+		suspiciousAccounts = []SuspiciousAccount{}
+	}
+
 	return &SessionSummary{
-		SessionUUID:   sessionUUID,
-		TotalAccounts: total,
-		TopDays:       topDays,
-		Broadcasters:  broadcasters,
-		GeneratedAt:   time.Now().UTC(),
+		SessionUUID:            sessionUUID,
+		TotalAccounts:          total,
+		TopDays:                topDays,
+		Broadcasters:           broadcasters,
+		SuspiciousRenamesCount: int64(len(suspiciousAccounts)),
+		SuspiciousAccounts:     suspiciousAccounts,
+		GeneratedAt:            time.Now().UTC(),
 	}, nil
 }
 
@@ -265,6 +284,80 @@ ORDER BY capture_count DESC, c.broadcaster_login ASC
 	}
 
 	return broadcasters, rows.Err()
+}
+
+// getSuspiciousRenames retourne les comptes qui ont changé de nom 3+ fois
+func (a *App) getSuspiciousRenames(ctx context.Context, sessionID int64, filterBroadcasters []string) ([]SuspiciousAccount, error) {
+	const minRenames = 3 // Seuil de suspicion
+
+	var rows *sql.Rows
+	var err error
+
+	if len(filterBroadcasters) == 0 {
+		// Sans filtre broadcaster
+		rows, err = a.db.QueryContext(ctx, `
+SELECT 
+    tu.twitch_user_id,
+    tu.login,
+    tu.display_name,
+    COUNT(tun.id) as rename_count
+FROM twitch_users tu
+INNER JOIN capture_chatters cc ON cc.twitch_user_id = tu.twitch_user_id
+INNER JOIN captures c ON c.id = cc.capture_id
+INNER JOIN twitch_user_names tun ON tun.twitch_user_id = tu.twitch_user_id
+WHERE c.session_id = ?
+GROUP BY tu.twitch_user_id, tu.login, tu.display_name
+HAVING rename_count >= ?
+ORDER BY rename_count DESC, tu.login ASC
+LIMIT 50
+`, sessionID, minRenames)
+	} else {
+		// Avec filtre broadcaster
+		query := `
+SELECT 
+    tu.twitch_user_id,
+    tu.login,
+    tu.display_name,
+    COUNT(tun.id) as rename_count
+FROM twitch_users tu
+INNER JOIN capture_chatters cc ON cc.twitch_user_id = tu.twitch_user_id
+INNER JOIN captures c ON c.id = cc.capture_id
+INNER JOIN twitch_user_names tun ON tun.twitch_user_id = tu.twitch_user_id
+WHERE c.session_id = ? AND c.broadcaster_id IN (?` + strings.Repeat(",?", len(filterBroadcasters)-1) + `)
+GROUP BY tu.twitch_user_id, tu.login, tu.display_name
+HAVING rename_count >= ?
+ORDER BY rename_count DESC, tu.login ASC
+LIMIT 50
+`
+		args := make([]interface{}, 0, len(filterBroadcasters)+2)
+		args = append(args, sessionID)
+		for _, bid := range filterBroadcasters {
+			args = append(args, strings.TrimSpace(bid))
+		}
+		args = append(args, minRenames)
+		rows, err = a.db.QueryContext(ctx, query, args...)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var accounts []SuspiciousAccount
+	for rows.Next() {
+		var acc SuspiciousAccount
+		if err := rows.Scan(&acc.TwitchUserID, &acc.Login, &acc.DisplayName, &acc.RenameCount); err != nil {
+			return nil, err
+		}
+		accounts = append(accounts, acc)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	log.Printf("[SUSPICIOUS_RENAMES] session_id=%d found=%d accounts with %d+ renames", sessionID, len(accounts), minRenames)
+	return accounts, nil
 }
 
 func loggingMiddleware(next http.Handler) http.Handler {
