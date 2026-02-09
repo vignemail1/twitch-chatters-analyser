@@ -17,8 +17,8 @@ Ce document explique la configuration Traefik avec terminaison TLS automatique v
         ┌──────────┼─────────┐
         │           │          │
         v           v          v
-   Gateway-1   Gateway-2   Analysis
-    :8080       :8080       :8083
+   Gateway     Twitch-API   Analysis
+    :8080       :8081       :8083
 ```
 
 ## Domaines Configurés
@@ -112,7 +112,7 @@ TRAEFIK_AUTH=admin:$$2y$$05$$...
 ### 3. Démarrer les Services
 
 ```bash
-# Production (avec replicas et TLS)
+# Production (avec TLS)
 docker-compose up -d
 
 # Vérifier les logs Traefik
@@ -162,12 +162,13 @@ openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
 
 ## Load Balancing
 
-Traefik fait automatiquement du load balancing entre les replicas du gateway :
+### Configuration Actuelle (Single Instance)
+
+Traefik route toutes les requêtes vers l'instance unique du gateway :
 
 ```yaml
 gateway:
-  deploy:
-    replicas: 2  # 2 instances
+  container_name: twitch-chatters-gateway  # 1 instance
   labels:
     - "traefik.http.services.tca-gateway.loadbalancer.server.port=8080"
 ```
@@ -182,6 +183,21 @@ traefik.http.services.tca-gateway.loadbalancer.healthcheck.interval: 10s
 ```
 
 Si une instance échoue au health check, Traefik arrête de router vers elle.
+
+### Load Balancing Multi-Réplicas (Future)
+
+Si vous migrez vers un système multi-réplicas (voir [SCALING.md](SCALING.md)), Traefik fera automatiquement du load balancing entre les replicas :
+
+```yaml
+gateway:
+  # container_name retiré pour permettre le scaling
+  deploy:
+    replicas: 2  # 2 instances
+  labels:
+    - "traefik.http.services.tca-gateway.loadbalancer.server.port=8080"
+```
+
+Traefik détecte automatiquement les nouvelles instances via Docker labels et les ajoute au pool de load balancing.
 
 ## Sécurité
 
@@ -286,10 +302,10 @@ certificatesresolvers.letsencrypt.acme.caServer: https://acme-staging-v02.api.le
 docker-compose exec traefik wget -qO- http://localhost:8080/api/http/routers
 
 # Vérifier que le gateway répond
-docker-compose exec gateway-1 wget -qO- http://localhost:8080/healthz
+docker-compose exec gateway wget -qO- http://localhost:8080/healthz
 
 # Vérifier les labels
-docker inspect twitch-chatters-analyser-gateway-1 | grep traefik
+docker inspect twitch-chatters-gateway | grep traefik
 ```
 
 ## Backup et Restauration
