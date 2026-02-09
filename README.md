@@ -2,7 +2,7 @@
 
 Application d'analyse des spectateurs Twitch pour modérateurs et streamers.
 
-## 📊 Vue d'ensemble
+## 📊Vue d'ensemble
 
 Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 - 📋 Capturer périodiquement la liste des chatters actifs
@@ -26,11 +26,11 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 │  └───────┬────────┘   └───────┬────────┘   └───────┬────────┘   └───────┬────────┘  │
 │          │                   │               │               │             │
 │          v                   v               v               v             │
-│  ┌───────────────────────────────────────────────────────────────────────────────────────┐  │
+│  ┌───────────────────────────────────────────────────────────────────────────────────────────┐  │
 │  │                                                                                            │  │
 │  │                 ┌─────────────────────────────────────────┐                     │  │
 │  │                 │         Backend Network              │                     │  │
-│  │                 └────────────────┬────────────────────────┘                     │  │
+│  │                 └────────────┬─────────────────────┘                     │  │
 │  │                                  │                                                 │  │
 │  │                     ┌────────────┼────────────┐                                   │  │
 │  │                     │             │            │                                   │  │
@@ -39,14 +39,14 @@ Twitch Chatters Analyser permet aux modérateurs de chaînes Twitch de :
 │  │                │   Database      │ │    Cache      │                              │  │
 │  │                └─────────────────┘ └────────────────┘                              │  │
 │  │                                                                                            │  │
-│  └───────────────────────────────────────────────────────────────────────────────────────┘  │
+│  └──────────────────────────────────────────────────────────────────────────────────────┘  │
 │                                         │                                                    │
 │                                         v                                                    │
 │                                  ┌─────────────────┐                                         │
 │                                  │    Traefik     │                                         │
 │                                  │  HTTPS + TLS  │                                         │
 │                                  └────────┬────────┘                                         │
-└────────────────────────────────────────────────┬───────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────┬───────────────────────────────────────────────────┘
                                             │
                                             v
                                https://twitch-chatters.vignemail1.eu
@@ -422,10 +422,10 @@ mise run db-backup
 
 ## 📊 Ressources
 
-### Configuration par Défaut (Development, 1 replica)
+### Configuration Actuelle (Single Instance)
 
 ```
-CPU  : ~3 vCPU (moyenne)
+CPU  : ~4 vCPU (moyenne)
 RAM  : ~4 GB
 Disk : ~12 GB + données utilisateurs
 
@@ -436,15 +436,15 @@ Coût estimé : ~12€/mois (Hetzner CPX31)
 ### Production avec Monitoring
 
 ```
-CPU  : ~5 vCPU
-RAM  : ~6 GB
+CPU  : ~5.5 vCPU
+RAM  : ~6.5 GB
 Disk : ~21 GB + données utilisateurs
 
-Serveur recommandé : 8 vCPU, 12 GB RAM, 80 GB SSD
-Coût estimé : ~25€/mois (Hetzner CPX41)
+Serveur recommandé : 8 vCPU, 10 GB RAM, 80 GB SSD
+Coût estimé : ~24€/mois (Hetzner CPX41)
 ```
 
-## 📖 Documentation
+## 📚 Documentation
 
 ### Guides Principaux
 
@@ -593,19 +593,33 @@ mise run clean
 
 ## 🚀 Performance
 
-### Capacité Actuelle (Development, 1 replica)
+### Capacité Actuelle (Configuration Single Instance)
 
 - ✅ 100-500 utilisateurs actifs simultanés
 - ✅ 1000-5000 captures/heure
 - ✅ 10-50 requêtes HTTP/sec
 
-### Production avec Replicas
+**Configuration** :
+```
+Gateway: 1 instance
+Worker: 1 instance
+Analysis: 1 instance
+Twitch-API: 1 instance
+```
+
+### Scalabilité Horizontale (Future)
+
+Pour augmenter la capacité, voir [SCALING.md](docs/SCALING.md) pour migrer vers un système multi-réplicas :
 
 ```bash
-# 2 gateway, 3 workers, 2 analysis
-docker-compose up -d --scale gateway=2 --scale worker=3 --scale analysis=2
+# Nécessite de modifier docker-compose.yml (retirer container_name)
+# Puis en mode Swarm:
+docker swarm init
+docker stack deploy -c docker-compose.yml twitch-chatters
+docker service scale twitch-chatters_gateway=2
+docker service scale twitch-chatters_worker=3
 
-# Capacité
+# Capacité multi-réplicas:
 - ✅ 500-1000 utilisateurs actifs
 - ✅ 5000-20000 captures/heure
 - ✅ 50-200 requêtes HTTP/sec
