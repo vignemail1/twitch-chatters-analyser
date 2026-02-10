@@ -22,7 +22,7 @@
     </div>
 </header>
 <main>
-<h2>📊Analyse de {{ if .IsSaved }}session sauvegardée{{ else }}la session{{ end }}</h2>
+<h2>📊 Analyse de {{ if .IsSaved }}session sauvegardée{{ else }}la session{{ end }}</h2>
 
 {{ if .Purged }}
 <div class="info" style="background-color: #15803d; border-left-color: #22c55e; margin-bottom: 1.5rem;">
@@ -197,35 +197,73 @@
                 <th>Nombre de comptes</th>
                 <th>% du total</th>
                 <th>Indicateur</th>
+                <th>Actions</th>
             </tr>
             </thead>
             <tbody>
-            {{ range .Summary.TopDays }}
+            {{ range $index, $day := .Summary.TopDays }}
                 <tr>
-                    <td><strong>{{ .Date }}</strong></td>
-                    <td>{{ .Count }}</td>
+                    <td><strong>{{ $day.Date }}</strong></td>
+                    <td>{{ $day.Count }}</td>
                     <td>
                         {{ if gt $.Summary.TotalAccounts 0 }}
-                            {{ div (mul .Count 100) $.Summary.TotalAccounts }}%
+                            {{ div (mul $day.Count 100) $.Summary.TotalAccounts }}%
                         {{ else }}
                             0%
                         {{ end }}
                     </td>
                     <td>
-                        {{ if ge .Count 100 }}
+                        {{ if ge $day.Count 100 }}
                             <span style="color: #ef4444; font-weight: 600;">❌ CRITIQUE</span>
-                        {{ else if ge .Count 50 }}
+                        {{ else if ge $day.Count 50 }}
                             <span style="color: #f59e0b; font-weight: 600;">⚠️ SUSPECT</span>
-                        {{ else if ge .Count 30 }}
+                        {{ else if ge $day.Count 30 }}
                             <span style="color: #3b82f6;">🔍 À surveiller</span>
                         {{ else }}
                             <span style="color: #10b981;">✅ Normal</span>
                         {{ end }}
                     </td>
+                    <td>
+                        <button 
+                            onclick="toggleLogins('day-{{ $index }}')" 
+                            style="background-color: #9147ff; color: #fff; padding: 0.4rem 0.8rem; border-radius: 4px; border: none; font-weight: 600; cursor: pointer; font-size: 0.85rem;"
+                        >
+                            📋 Voir les logins ({{ $day.Count }})
+                        </button>
+                    </td>
+                </tr>
+                <tr id="day-{{ $index }}-details" style="display: none;">
+                    <td colspan="5" style="background-color: #0e0e10; padding: 1rem;">
+                        <div style="max-height: 400px; overflow-y: auto;">
+                            <h4 style="margin-top: 0; color: #9147ff;">📋 Logins créés le {{ $day.Date }} ({{ $day.Count }} compte{{ if gt $day.Count 1 }}s{{ end }})</h4>
+                            {{ if $day.Logins }}
+                                <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 0.5rem;">
+                                    {{ range $day.Logins }}
+                                        <div style="background-color: #18181b; padding: 0.5rem; border-radius: 4px; font-family: monospace; font-size: 0.9rem; color: #efeff1;">
+                                            {{ . }}
+                                        </div>
+                                    {{ end }}
+                                </div>
+                            {{ else }}
+                                <p style="color: #adadb8;">Aucun login disponible pour cette date.</p>
+                            {{ end }}
+                        </div>
+                    </td>
                 </tr>
             {{ end }}
             </tbody>
         </table>
+
+        <script>
+        function toggleLogins(dayId) {
+            var detailsRow = document.getElementById(dayId + '-details');
+            if (detailsRow.style.display === 'none' || detailsRow.style.display === '') {
+                detailsRow.style.display = 'table-row';
+            } else {
+                detailsRow.style.display = 'none';
+            }
+        }
+        </script>
 
         <div style="margin-top: 2rem; padding: 1rem; background-color: #18181b; border-radius: 4px;">
             <h4 style="margin-top: 0; color: #efeff1;">📖 Guide d'interprétation</h4>
