@@ -29,8 +29,9 @@ type SessionSummary struct {
 }
 
 type TopDay struct {
-	Date  string `json:"date"` // YYYY-MM-DD
-	Count int64  `json:"count"`
+	Date   string   `json:"date"` // YYYY-MM-DD
+	Count  int64    `json:"count"`
+	Logins []string `json:"logins"` // Liste des logins créés ce jour-là
 }
 
 type Broadcaster struct {
@@ -187,8 +188,37 @@ WHERE c.session_id = ? AND c.broadcaster_id IN (?` + strings.Repeat(",?", len(fi
 		return nil, err
 	}
 
-	// Top 10 des jours de création
+	// Top 10 des jours de création avec les logins
+	topDays, err := a.getTopDaysWithLogins(ctx, sessionID, filterBroadcasters)
+	if err != nil {
+		return nil, err
+	}
+
+	// Détection des comptes suspects avec renommages multiples (seuil: 3+)
+	suspiciousAccounts, err := a.getSuspiciousRenames(ctx, sessionID, filterBroadcasters)
+	if err != nil {
+		log.Printf("getSuspiciousRenames error: %v", err)
+		// Non-bloquant, on continue sans cette stat
+		suspiciousAccounts = []SuspiciousAccount{}
+	}
+
+	return &SessionSummary{
+		SessionUUID:            sessionUUID,
+		TotalAccounts:          total,
+		TopDays:                topDays,
+		Broadcasters:           broadcasters,
+		SuspiciousRenamesCount: int64(len(suspiciousAccounts)),
+		SuspiciousAccounts:     suspiciousAccounts,
+		GeneratedAt:            time.Now().UTC(),
+	}, nil
+}
+
+// getTopDaysWithLogins récupère le top 10 des jours de création avec la liste des logins
+func (a *App) getTopDaysWithLogins(ctx context.Context, sessionID int64, filterBroadcasters []string) ([]TopDay, error) {
+	// Première requête : récupérer les top 10 dates
 	var rows *sql.Rows
+	var err error
+
 	if len(filterBroadcasters) == 0 {
 		rows, err = a.db.QueryContext(ctx, `
 SELECT DATE(tu.created_at) AS d, COUNT(DISTINCT cc.twitch_user_id) AS cnt
@@ -223,39 +253,89 @@ LIMIT 10
 	}
 	defer rows.Close()
 
-	topDays := make([]TopDay, 0, 10)
+	type dateCount struct {
+		date  time.Time
+		count int64
+	}
+
+	var dateCounts []dateCount
 	for rows.Next() {
-		var d time.Time
-		var cnt int64
-		if err := rows.Scan(&d, &cnt); err != nil {
+		var dc dateCount
+		if err := rows.Scan(&dc.date, &dc.count); err != nil {
 			return nil, err
 		}
-		topDays = append(topDays, TopDay{
-			Date:  d.Format("2006-01-02"),
-			Count: cnt,
-		})
+		dateCounts = append(dateCounts, dc)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 
-	// Détection des comptes suspects avec renommages multiples (seuil: 3+)
-	suspiciousAccounts, err := a.getSuspiciousRenames(ctx, sessionID, filterBroadcasters)
-	if err != nil {
-		log.Printf("getSuspiciousRenames error: %v", err)
-		// Non-bloquant, on continue sans cette stat
-		suspiciousAccounts = []SuspiciousAccount{}
+	// Pour chaque date, récupérer les logins
+	topDays := make([]TopDay, 0, len(dateCounts))
+	for _, dc := range dateCounts {
+		logins, err := a.getLoginsForDate(ctx, sessionID, dc.date, filterBroadcasters)
+		if err != nil {
+			log.Printf("getLoginsForDate error for %s: %v", dc.date.Format("2006-01-02"), err)
+			logins = []string{} // En cas d'erreur, on continue avec une liste vide
+		}
+
+		topDays = append(topDays, TopDay{
+			Date:   dc.date.Format("2006-01-02"),
+			Count:  dc.count,
+			Logins: logins,
+		})
 	}
 
-	return &SessionSummary{
-		SessionUUID:            sessionUUID,
-		TotalAccounts:          total,
-		TopDays:                topDays,
-		Broadcasters:           broadcasters,
-		SuspiciousRenamesCount: int64(len(suspiciousAccounts)),
-		SuspiciousAccounts:     suspiciousAccounts,
-		GeneratedAt:            time.Now().UTC(),
-	}, nil
+	return topDays, nil
+}
+
+// getLoginsForDate récupère la liste des logins créés à une date donnée
+func (a *App) getLoginsForDate(ctx context.Context, sessionID int64, date time.Time, filterBroadcasters []string) ([]string, error) {
+	var rows *sql.Rows
+	var err error
+
+	if len(filterBroadcasters) == 0 {
+		rows, err = a.db.QueryContext(ctx, `
+SELECT DISTINCT tu.login
+FROM capture_chatters cc
+JOIN captures c ON cc.capture_id = c.id
+JOIN twitch_users tu ON tu.twitch_user_id = cc.twitch_user_id
+WHERE c.session_id = ? AND DATE(tu.created_at) = DATE(?)
+ORDER BY tu.login ASC
+`, sessionID, date)
+	} else {
+		query := `
+SELECT DISTINCT tu.login
+FROM capture_chatters cc
+JOIN captures c ON cc.capture_id = c.id
+JOIN twitch_users tu ON tu.twitch_user_id = cc.twitch_user_id
+WHERE c.session_id = ? AND c.broadcaster_id IN (?` + strings.Repeat(",?", len(filterBroadcasters)-1) + `) AND DATE(tu.created_at) = DATE(?)
+ORDER BY tu.login ASC
+`
+		args := make([]interface{}, 0, len(filterBroadcasters)+2)
+		args = append(args, sessionID)
+		for _, bid := range filterBroadcasters {
+			args = append(args, strings.TrimSpace(bid))
+		}
+		args = append(args, date)
+		rows, err = a.db.QueryContext(ctx, query, args...)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logins []string
+	for rows.Next() {
+		var login string
+		if err := rows.Scan(&login); err != nil {
+			return nil, err
+		}
+		logins = append(logins, login)
+	}
+
+	return logins, rows.Err()
 }
 
 func (a *App) getBroadcasters(ctx context.Context, sessionID int64) ([]Broadcaster, error) {
