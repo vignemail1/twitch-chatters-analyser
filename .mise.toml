@@ -21,77 +21,13 @@ COMPOSE_DOCKER_CLI_BUILD = "1"
 # mise charge automatiquement les .env, pas besoin de direnv
 _.file = [
   ".env",
-  { path = ".env.local", optional = true },
+  { path = ".env.local", optional = true }
 ]
 
 _.path = [
   "./bin",
   "./scripts"
 ]
-
-# ===========================================
-# PROFIL DEVELOPMENT (par défaut)
-# ===========================================
-[env.development]
-# Charger .env.development en priorité
-_.file = [
-  ".env.development",
-  { path = ".env.development.local", optional = true },
-]
-
-APP_ENV = "development"
-LOG_LEVEL = "DEBUG"
-
-# Domaines de développement
-TWITCH_REDIRECT_URL = "https://twitch-chatters-dev.vignemail1.eu/auth/callback"
-
-# Monitoring désactivé en dev par défaut
-ENABLE_MONITORING = "false"
-
-# Redis visible en local pour debug
-REDIS_PORT = "6379"
-
-# MySQL visible en local pour debug
-MYSQL_PORT = "3306"
-
-# ===========================================
-# PROFIL PRODUCTION
-# ===========================================
-[env.production]
-# Charger .env.production
-_.file = [
-  ".env.production",
-  { path = ".env.production.local", optional = true },
-]
-
-APP_ENV = "production"
-LOG_LEVEL = "INFO"
-
-# Domaines de production
-TWITCH_REDIRECT_URL = "https://twitch-chatters.vignemail1.eu/auth/callback"
-
-# Monitoring activé en production
-ENABLE_MONITORING = "true"
-
-# Ports non exposés en production
-REDIS_PORT = ""
-MYSQL_PORT = ""
-
-# ===========================================
-# PROFIL STAGING
-# ===========================================
-[env.staging]
-_.file = [
-  ".env.staging",
-  { path = ".env.staging.local", optional = true },
-]
-
-APP_ENV = "staging"
-LOG_LEVEL = "INFO"
-
-TWITCH_REDIRECT_URL = "https://twitch-chatters-staging.vignemail1.eu/auth/callback"
-
-ENABLE_MONITORING = "true"
 
 # ===========================================
 # TÂCHES
@@ -266,10 +202,10 @@ echo ""
 if command -v htpasswd &> /dev/null; then
   echo "# Traefik Auth (admin/changeme)"
   echo "# Générer un nouveau mot de passe : htpasswd -nB admin"
-  echo "TRAEFIK_AUTH=$(echo $(htpasswd -nB admin 2>/dev/null) | sed -e 's/\$/\$\$/g')"
+  echo "TRAEFIK_AUTH=$(echo $(htpasswd -nB admin 2>/dev/null) | sed -e 's/\\$/\\$\\$/g')"
 else
   echo "# Traefik Auth (installer apache2-utils pour générer)"
-  echo "# TRAEFIK_AUTH=admin:\$\$2y\$\$05\$\$..."
+  echo "# TRAEFIK_AUTH=admin:\\$\\$2y\\$\\$05\\$\\$..."
 fi
 
 echo ""

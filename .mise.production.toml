@@ -1,0 +1,22 @@
+# ===========================================
+# PROFIL PRODUCTION
+# ===========================================
+[env.production]
+# Charger .env.production
+_.file = [
+  ".env.production",
+  { path = ".env.production.local", optional = true }
+]
+
+APP_ENV = "production"
+LOG_LEVEL = "INFO"
+
+# Domaines de production
+TWITCH_REDIRECT_URL = "https://twitch-chatters.vignemail1.eu/auth/callback"
+
+# Monitoring activé en production
+ENABLE_MONITORING = "true"
+
+# Ports non exposés en production
+REDIS_PORT = ""
+MYSQL_PORT = ""

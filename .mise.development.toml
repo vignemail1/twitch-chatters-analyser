@@ -1,0 +1,25 @@
+# ===========================================
+# PROFIL DEVELOPMENT (par défaut)
+# ===========================================
+[env.development]
+# Charger .env.development en priorité
+_.file = [
+  ".env.development",
+  { path = ".env.development.local", optional = true }
+]
+
+APP_ENV = "development"
+LOG_LEVEL = "DEBUG"
+
+# Domaines de développement
+TWITCH_REDIRECT_URL = "https://twitch-chatters-dev.vignemail1.eu/auth/callback"
+
+# Monitoring désactivé en dev par défaut
+ENABLE_MONITORING = "false"
+
+# Redis visible en local pour debug
+REDIS_PORT = "6379"
+
+# MySQL visible en local pour debug
+MYSQL_PORT = "3306"
+

@@ -1,0 +1,16 @@
+# ===========================================
+# PROFIL STAGING
+# ===========================================
+[env.staging]
+_.file = [
+  ".env.staging",
+  { path = ".env.staging.local", optional = true },
+]
+
+APP_ENV = "staging"
+LOG_LEVEL = "INFO"
+
+TWITCH_REDIRECT_URL = "https://twitch-chatters-staging.vignemail1.eu/auth/callback"
+
+ENABLE_MONITORING = "true"
+
