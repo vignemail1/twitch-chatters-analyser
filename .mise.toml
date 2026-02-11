@@ -21,77 +21,13 @@ COMPOSE_DOCKER_CLI_BUILD = "1"
 # mise charge automatiquement les .env, pas besoin de direnv
 _.file = [
   ".env",
-  { path = ".env.local", optional = true },
+  { path = ".env.local", optional = true }
 ]
 
 _.path = [
   "./bin",
   "./scripts"
 ]
-
-# ===========================================
-# PROFIL DEVELOPMENT (par défaut)
-# ===========================================
-[env.development]
-# Charger .env.development en priorité
-_.file = [
-  ".env.development",
-  { path = ".env.development.local", optional = true },
-]
-
-APP_ENV = "development"
-LOG_LEVEL = "DEBUG"
-
-# Domaines de développement
-TWITCH_REDIRECT_URL = "https://twitch-chatters-dev.vignemail1.eu/auth/callback"
-
-# Monitoring désactivé en dev par défaut
-ENABLE_MONITORING = "false"
-
-# Redis visible en local pour debug
-REDIS_PORT = "6379"
-
-# MySQL visible en local pour debug
-MYSQL_PORT = "3306"
-
-# ===========================================
-# PROFIL PRODUCTION
-# ===========================================
-[env.production]
-# Charger .env.production
-_.file = [
-  ".env.production",
-  { path = ".env.production.local", optional = true },
-]
-
-APP_ENV = "production"
-LOG_LEVEL = "INFO"
-
-# Domaines de production
-TWITCH_REDIRECT_URL = "https://twitch-chatters.vignemail1.eu/auth/callback"
-
-# Monitoring activé en production
-ENABLE_MONITORING = "true"
-
-# Ports non exposés en production
-REDIS_PORT = ""
-MYSQL_PORT = ""
-
-# ===========================================
-# PROFIL STAGING
-# ===========================================
-[env.staging]
-_.file = [
-  ".env.staging",
-  { path = ".env.staging.local", optional = true },
-]
-
-APP_ENV = "staging"
-LOG_LEVEL = "INFO"
-
-TWITCH_REDIRECT_URL = "https://twitch-chatters-staging.vignemail1.eu/auth/callback"
-
-ENABLE_MONITORING = "true"
 
 # ===========================================
 # TÂCHES
@@ -103,11 +39,11 @@ run = "go mod download"
 
 [tasks.build]
 description = "Builder les images Docker"
-run = "docker-compose build"
+run = "docker compose build"
 
 [tasks."build:nocache"]
 description = "Builder les images Docker sans cache"
-run = "docker-compose build --no-cache"
+run = "docker compose build --no-cache"
 
 [tasks.up]
 description = "Démarrer tous les services (utilise le profil actif)"
@@ -117,29 +53,29 @@ set -e
 
 if [ "$ENABLE_MONITORING" = "true" ]; then
   echo "📊 Démarrage avec monitoring ($APP_ENV)"
-  docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
+  docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d
 else
   echo "🚀 Démarrage sans monitoring ($APP_ENV)"
-  docker-compose up -d
+  docker compose up -d
 fi
 """
 
 [tasks."up:dev"]
 description = "Démarrer en mode développement (ports exposés, 1 replica)"
-run = "docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d"
+run = "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d"
 
 [tasks."up:prod"]
 description = "Démarrer en mode production (monitoring inclus)"
 env = { MISE_ENV = "production" }
-run = "docker-compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d"
+run = "docker compose -f docker-compose.yml -f docker-compose.monitoring.yml up -d"
 
 [tasks.down]
 description = "Arrêter tous les services"
-run = "docker-compose down"
+run = "docker compose down"
 
 [tasks."down:volumes"]
 description = "Arrêter et supprimer les volumes (ATTENTION: perte de données)"
-run = "docker-compose down -v"
+run = "docker compose down -v"
 
 [tasks.restart]
 description = "Redémarrer tous les services"
@@ -151,23 +87,23 @@ mise run up
 
 [tasks.logs]
 description = "Afficher les logs de tous les services"
-run = "docker-compose logs -f"
+run = "docker compose logs -f"
 
 [tasks."logs:gateway"]
 description = "Afficher les logs du gateway"
-run = "docker-compose logs -f gateway"
+run = "docker compose logs -f gateway"
 
 [tasks."logs:worker"]
 description = "Afficher les logs du worker"
-run = "docker-compose logs -f worker"
+run = "docker compose logs -f worker"
 
 [tasks."logs:db"]
 description = "Afficher les logs de la base de données"
-run = "docker-compose logs -f db"
+run = "docker compose logs -f db"
 
 [tasks.ps]
 description = "Afficher l'état des services"
-run = "docker-compose ps"
+run = "docker compose ps"
 
 [tasks.test]
 description = "Lancer les tests"
@@ -266,10 +202,10 @@ echo ""
 if command -v htpasswd &> /dev/null; then
   echo "# Traefik Auth (admin/changeme)"
   echo "# Générer un nouveau mot de passe : htpasswd -nB admin"
-  echo "TRAEFIK_AUTH=$(echo $(htpasswd -nB admin 2>/dev/null) | sed -e 's/\$/\$\$/g')"
+  echo "TRAEFIK_AUTH=$(echo $(htpasswd -nB admin 2>/dev/null) | sed -e 's/\\$/\\$\\$/g')"
 else
   echo "# Traefik Auth (installer apache2-utils pour générer)"
-  echo "# TRAEFIK_AUTH=admin:\$\$2y\$\$05\$\$..."
+  echo "# TRAEFIK_AUTH=admin:\\$\\$2y\\$\\$05\\$\\$..."
 fi
 
 echo ""
